@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
+use Uzbek\Wlcm\Events\SubscriptionCharged;
+use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
@@ -40,6 +42,18 @@ final class StorageWiringTest extends TestCase
             'timestamp' => '2026-07-24 12:00:00',
         ];
         $data['signature'] = hash_hmac('sha256', "1254:7788:{$state}:{$data['timestamp']}", 'whsec_test');
+
+        return $data;
+    }
+
+    private function subscriptionWebhookData(string $event = 'subscription.charged'): array
+    {
+        $data = [
+            'event' => $event, 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ];
+        $data['signature'] = hash_hmac('sha256', "order-1001:{$event}:1745740800000", 'whsec_test');
 
         return $data;
     }
@@ -129,6 +143,86 @@ final class StorageWiringTest extends TestCase
         $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
 
         $this->assertSame('https://c.test/x', $r->checkoutUrl);
+        Exceptions::assertReported(QueryException::class);
+    }
+
+    public function test_replayed_success_after_cancel_is_stale(): void
+    {
+        Event::fake();
+
+        $success = $this->webhookData('2');
+        $this->postJson('/wlcm/webhook', $success)->assertOk();
+        $this->postJson('/wlcm/webhook', $this->webhookData('-2'))->assertOk();
+        $this->postJson('/wlcm/webhook', $success)->assertOk();
+
+        $this->assertSame(-2, WlcmTransaction::sole()->state);
+        Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
+        $this->assertSame(1, WlcmLog::where('result', 'stale')->count());
+    }
+
+    public function test_crash_recovery_refires_events(): void
+    {
+        // Row claimed but processed_at never set (handler crashed) -> same delivery re-fires.
+        $data = $this->webhookData('2');
+        Event::fake();
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        WlcmTransaction::query()->update(['processed_at' => null]);
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        Event::assertDispatchedTimes(PaymentSucceeded::class, 2);
+    }
+
+    public function test_webhook_updates_preexisting_row_without_duplicating(): void
+    {
+        WlcmTransaction::create([
+            'connection' => 'main', 'api' => 'partner', 'external_id' => 'ORD-1',
+            'order_id' => '1254', 'payment_id' => '7788', 'state' => 0, 'processed_at' => null,
+        ]);
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $tx = WlcmTransaction::sole();
+        $this->assertSame(2, $tx->state);
+        $this->assertNotNull($tx->processed_at);
+    }
+
+    public function test_subscription_delivery_deduped(): void
+    {
+        Event::fake();
+        $data = $this->subscriptionWebhookData();
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        Event::assertDispatchedTimes(SubscriptionCharged::class, 1);
+        Event::assertDispatchedTimes(WebhookReceived::class, 1);
+    }
+
+    public function test_distinct_subscription_deliveries_both_processed(): void
+    {
+        Event::fake();
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData('subscription.cancelled'))->assertOk();
+
+        $this->assertSame(2, WlcmTransaction::where('api', 'subscription')->count());
+        Event::assertDispatchedTimes(WebhookReceived::class, 2);
+    }
+
+    public function test_webhook_500_when_transactions_table_broken(): void
+    {
+        Schema::drop('wlcm_transactions');
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertStatus(500);
+    }
+
+    public function test_webhook_survives_broken_log_table(): void
+    {
+        Schema::drop('wlcm_logs');
+        Exceptions::fake();
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
         Exceptions::assertReported(QueryException::class);
     }
 

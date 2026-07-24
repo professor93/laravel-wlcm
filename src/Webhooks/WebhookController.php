@@ -17,6 +17,7 @@ use Uzbek\Wlcm\Events\SubscriptionChargeFailed;
 use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Storage\LogWriter;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\WebhookOutcome;
 
 final readonly class WebhookController
 {
@@ -30,21 +31,23 @@ final readonly class WebhookController
         /** @var WebhookPayload|SubscriptionWebhookPayload $payload */
         $payload = $request->attributes->get('wlcm_payload');
 
-        event(new WebhookReceived($payload));
-
         $requestData = (array) $request->all();
         /** @var array<string, mixed> $requestData */
         if ($payload instanceof SubscriptionWebhookPayload) {
             return $this->handleSubscription($payload, $requestData);
         }
 
-        if (! TransactionRecorder::applyWebhook($payload)) {
-            LogWriter::webhook((string) $payload->connection, $requestData, 'duplicate');
+        $outcome = TransactionRecorder::applyWebhook($payload);
+
+        if ($outcome !== WebhookOutcome::Fresh) {
+            LogWriter::webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate');
 
             return new JsonResponse(['status' => 'ok']);
         }
 
         LogWriter::webhook((string) $payload->connection, $requestData, 'ok');
+
+        event(new WebhookReceived($payload));
 
         if ($payload->isSuccess()) {
             event(new PaymentSucceeded($payload));
@@ -62,13 +65,25 @@ final readonly class WebhookController
             }
         }
 
+        TransactionRecorder::markProcessed($payload);
+
         return new JsonResponse(['status' => 'ok']);
     }
 
     /** @param array<string, mixed> $requestData */
     private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData): JsonResponse
     {
+        $outcome = TransactionRecorder::claimSubscription($payload);
+
+        if ($outcome !== WebhookOutcome::Fresh) {
+            LogWriter::webhook((string) $payload->connection, $requestData, 'duplicate');
+
+            return new JsonResponse(['status' => 'ok']);
+        }
+
         LogWriter::webhook((string) $payload->connection, $requestData, 'ok');
+
+        event(new WebhookReceived($payload));
 
         match ($payload->event) {
             'subscription.activated' => event(new SubscriptionActivated($payload)),
@@ -87,6 +102,8 @@ final readonly class WebhookController
                 $instance->handle($payload);
             }
         }
+
+        TransactionRecorder::markSubscriptionProcessed($payload);
 
         return new JsonResponse(['status' => 'ok']);
     }
