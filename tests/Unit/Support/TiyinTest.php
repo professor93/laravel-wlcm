@@ -45,7 +45,13 @@ final class TiyinTest extends TestCase
 
     public function test_from_sum_string_rejects_malformed(): void
     {
-        foreach (['abc', '', '1,200.00', '1e3', '10.505', '1 200', '12.34.56'] as $bad) {
+        $malformed = [
+            'abc', '', '1,200.00', '1e3', '10.505', '1 200', '12.34.56',
+            "5000\n", "5000.5\n", "5000\r\n", "\n5000",
+            '92233720368547758.08', '99999999999999999999.99',
+        ];
+
+        foreach ($malformed as $bad) {
             try {
                 Tiyin::fromSumString($bad);
                 $this->fail("Expected InvalidAmountException for '{$bad}'");
@@ -62,5 +68,6 @@ final class TiyinTest extends TestCase
         $this->assertSame(500000, Tiyin::fromSumString('5000'));
         $this->assertSame(-12050, Tiyin::fromSumString('-120.50'));
         $this->assertSame(0, Tiyin::fromSumString('0'));
+        $this->assertSame(999999999999999999, Tiyin::fromSumString('9999999999999999.99'));
     }
 }

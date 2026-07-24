@@ -21,7 +21,8 @@ final class Tiyin
     // Inbound SUM decimal strings ("5000.00") to int tiyin; digit math, no floats.
     public static function fromSumString(string $sum): int
     {
-        if (preg_match('/^-?\d+(\.\d{1,2})?$/', $sum) !== 1) {
+        // \z not $: PCRE $ tolerates a trailing newline, which the splice would truncate.
+        if (preg_match('/^-?(\d{1,16})(\.\d{1,2})?\z/', $sum) !== 1) {
             throw new InvalidAmountException("Malformed SUM amount string: '{$sum}'");
         }
 
