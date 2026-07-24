@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
@@ -103,6 +106,30 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('7788', $tx->payment_id);
         $this->assertSame(2, $tx->state);
         $this->assertSame(120000, $tx->amount_tiyin);
+    }
+
+    public function test_checkout_survives_broken_log_table(): void
+    {
+        Schema::drop('wlcm_logs');
+        Exceptions::fake();
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+
+        $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->assertSame('https://c.test/x', $r->checkoutUrl);
+        Exceptions::assertReported(QueryException::class);
+    }
+
+    public function test_checkout_survives_broken_transactions_table(): void
+    {
+        Schema::drop('wlcm_transactions');
+        Exceptions::fake();
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+
+        $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->assertSame('https://c.test/x', $r->checkoutUrl);
+        Exceptions::assertReported(QueryException::class);
     }
 
     public function test_webhook_create_never_logs_secret_key(): void

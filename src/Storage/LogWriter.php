@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Storage;
 
+use Throwable;
 use Uzbek\Wlcm\Models\WlcmLog;
 
 final class LogWriter
@@ -28,23 +29,27 @@ final class LogWriter
             return;
         }
 
-        WlcmLog::create([
-            'connection' => $connection,
-            'direction' => 'out',
-            'api' => $api,
-            'method' => $method,
-            'path' => parse_url($url, PHP_URL_PATH) ?: $url,
-            'request_body' => $requestBody === null ? null : Masker::mask($requestBody),
-            'response_body' => is_array($responseBody) ? Masker::mask($responseBody) : null,
-            'status_code' => $status,
-            'duration_ms' => $durationMs,
-            'external_id' => $ids['external_id'] ?? null,
-            'order_id' => $ids['order_id'] ?? null,
-            'payment_id' => $ids['payment_id'] ?? null,
-            'transaction_id' => $ids['transaction_id'] ?? null,
-            'result' => $result,
-            'created_at' => now(),
-        ]);
+        try {
+            WlcmLog::create([
+                'connection' => $connection,
+                'direction' => 'out',
+                'api' => $api,
+                'method' => $method,
+                'path' => parse_url($url, PHP_URL_PATH) ?: $url,
+                'request_body' => $requestBody === null ? null : Masker::mask($requestBody),
+                'response_body' => is_array($responseBody) ? Masker::mask($responseBody) : null,
+                'status_code' => $status,
+                'duration_ms' => $durationMs,
+                'external_id' => $ids['external_id'] ?? null,
+                'order_id' => $ids['order_id'] ?? null,
+                'payment_id' => $ids['payment_id'] ?? null,
+                'transaction_id' => $ids['transaction_id'] ?? null,
+                'result' => $result,
+                'created_at' => now(),
+            ]);
+        } catch (Throwable $e) {
+            report($e); // Audit write must never break a payment call.
+        }
     }
 
     /** @param array<string, mixed> $payload */
@@ -62,15 +67,19 @@ final class LogWriter
          * @var WlcmJsonScalar $orderId
          * @var WlcmJsonScalar $paymentId
          */
-        WlcmLog::create([
-            'connection' => $connection,
-            'direction' => 'webhook',
-            'request_body' => Masker::mask($payload),
-            'external_id' => $externalId === null ? null : (string) $externalId,
-            'order_id' => $orderId === null ? null : (string) $orderId,
-            'payment_id' => $paymentId === null ? null : (string) $paymentId,
-            'result' => $result,
-            'created_at' => now(),
-        ]);
+        try {
+            WlcmLog::create([
+                'connection' => $connection,
+                'direction' => 'webhook',
+                'request_body' => Masker::mask($payload),
+                'external_id' => $externalId === null ? null : (string) $externalId,
+                'order_id' => $orderId === null ? null : (string) $orderId,
+                'payment_id' => $paymentId === null ? null : (string) $paymentId,
+                'result' => $result,
+                'created_at' => now(),
+            ]);
+        } catch (Throwable $e) {
+            report($e); // Audit write must never break a payment call.
+        }
     }
 }

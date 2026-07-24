@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Storage;
 
 use Illuminate\Support\Facades\DB;
+use Throwable;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
@@ -29,18 +30,22 @@ final class TransactionRecorder
          * @var WlcmJsonScalar $amount
          * @var WlcmJsonScalar $provider
          */
-        WlcmTransaction::create([
-            'connection' => $connection,
-            'api' => 'partner',
-            'external_id' => $response->externalId,
-            'order_id' => (string) $response->orderId,
-            'transaction_id' => $response->transactionId,
-            'amount_tiyin' => (int) $amount,
-            'provider' => $provider === null ? null : (string) $provider,
-            'state' => $response->state,
-            'state_text' => $response->stateEnum()?->name,
-            'meta' => Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid]),
-        ]);
+        try {
+            WlcmTransaction::create([
+                'connection' => $connection,
+                'api' => 'partner',
+                'external_id' => $response->externalId,
+                'order_id' => (string) $response->orderId,
+                'transaction_id' => $response->transactionId,
+                'amount_tiyin' => (int) $amount,
+                'provider' => $provider === null ? null : (string) $provider,
+                'state' => $response->state,
+                'state_text' => $response->stateEnum()?->name,
+                'meta' => Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid]),
+            ]);
+        } catch (Throwable $e) {
+            report($e); // Audit write must never break a payment call.
+        }
     }
 
     // False = duplicate delivery: row already holds this payment state.
