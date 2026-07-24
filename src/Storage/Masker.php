@@ -6,11 +6,12 @@ namespace Uzbek\Wlcm\Storage;
 
 final class Masker
 {
-    private const array PAN_KEYS = ['card_number', 'cardnumber', 'number', 'pan', 'hpan'];
+    // Keys compared separator-less and lowercased: "card_number"/"cardNumber" both hit.
+    private const array PAN_KEYS = ['cardnumber', 'number', 'pan', 'hpan'];
 
-    private const array STAR_KEYS = ['otp', 'password', 'expire_date', 'expiredate'];
+    private const array STAR_KEYS = ['otp', 'password', 'expiredate'];
 
-    private const array DROP_KEYS = ['api_secret', 'api_key', 'secret_key', 'client_secret', 'card_token', 'consumer_secret', 'access_token', 'refresh_token', 'authorization', 'signature'];
+    private const array DROP_KEYS = ['apisecret', 'apikey', 'secretkey', 'clientsecret', 'cardtoken', 'consumersecret', 'accesstoken', 'refreshtoken', 'authorization', 'signature'];
 
     /**
      * @param  array<array-key, mixed>  $data
@@ -21,19 +22,25 @@ final class Masker
         $out = [];
 
         foreach ($data as $key => $value) {
-            $normalized = is_string($key) ? strtolower($key) : $key;
+            $normalized = null;
 
-            if (is_string($normalized) && in_array($normalized, self::DROP_KEYS, true)) {
+            if (is_string($key)) {
+                $lower = strtolower($key);
+                $normalized = preg_replace('/[^a-z0-9]/', '', $lower) ?? $lower;
+            }
+
+            if ($normalized !== null && in_array($normalized, self::DROP_KEYS, true)) {
                 continue;
             }
 
-            if (is_array($value)) {
-                $out[$key] = self::mask($value);
+            // Before recursion: PAN hidden in a nested value must never be emitted.
+            if ($normalized !== null && in_array($normalized, self::PAN_KEYS, true)) {
+                if (! is_scalar($value)) {
+                    $out[$key] = '***';
 
-                continue;
-            }
+                    continue;
+                }
 
-            if (is_string($normalized) && in_array($normalized, self::PAN_KEYS, true) && is_scalar($value)) {
                 $digits = preg_replace('/\D/', '', (string) $value) ?? '';
                 $out[$key] = strlen($digits) >= 13
                     ? substr($digits, 0, 6).str_repeat('*', strlen($digits) - 10).substr($digits, -4)
@@ -42,8 +49,14 @@ final class Masker
                 continue;
             }
 
-            if (is_string($normalized) && in_array($normalized, self::STAR_KEYS, true)) {
+            if ($normalized !== null && in_array($normalized, self::STAR_KEYS, true)) {
                 $out[$key] = '***';
+
+                continue;
+            }
+
+            if (is_array($value)) {
+                $out[$key] = self::mask($value);
 
                 continue;
             }

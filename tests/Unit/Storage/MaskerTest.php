@@ -63,4 +63,29 @@ final class MaskerTest extends TestCase
         $out = Masker::mask(['card_number' => '1234567890123']);
         $this->assertSame('123456***0123', $out['card_number']);
     }
+
+    public function test_pan_wrapped_in_array_fully_masked(): void
+    {
+        $out = Masker::mask(['card_number' => ['9860991234569999'], 'otp' => ['111111']]);
+        $this->assertSame('***', $out['card_number']);
+        $this->assertSame('***', $out['otp']);
+    }
+
+    public function test_pan_nested_map_fully_masked(): void
+    {
+        $out = Masker::mask(['card_number' => ['full' => '9860991234569999', 'masked' => 'x']]);
+        $this->assertSame('***', $out['card_number']);
+    }
+
+    public function test_camel_case_secret_keys_removed(): void
+    {
+        $out = Masker::mask(['secretKey' => 'w', 'apiKey' => 'p', 'clientSecret' => 'c', 'cardToken' => 't', 'accessToken' => 'a', 'refreshToken' => 'r', 'ok' => 1]);
+        $this->assertSame(['ok' => 1], $out);
+    }
+
+    public function test_whitespace_padded_secret_key_removed(): void
+    {
+        $out = Masker::mask([' secret_key' => 'w', 'amount' => 5]);
+        $this->assertSame(['amount' => 5], $out);
+    }
 }
