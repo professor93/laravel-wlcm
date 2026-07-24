@@ -28,6 +28,12 @@ final class TiyinTest extends TestCase
         Tiyin::toSum(0);
     }
 
+    public function test_to_sum_rejects_negative(): void
+    {
+        $this->expectException(InvalidAmountException::class);
+        Tiyin::toSum(-100);
+    }
+
     public function test_from_sum_string_digit_math(): void
     {
         $this->assertSame(500000, Tiyin::fromSumString('5000.00'));
@@ -35,5 +41,26 @@ final class TiyinTest extends TestCase
         $this->assertSame(1000, Tiyin::fromSumString('10'));
         $this->assertSame(1050, Tiyin::fromSumString('10.5'));
         $this->assertSame(-1050, Tiyin::fromSumString('-10.50'));
+    }
+
+    public function test_from_sum_string_rejects_malformed(): void
+    {
+        foreach (['abc', '', '1,200.00', '1e3', '10.505', '1 200', '12.34.56'] as $bad) {
+            try {
+                Tiyin::fromSumString($bad);
+                $this->fail("Expected InvalidAmountException for '{$bad}'");
+            } catch (InvalidAmountException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_from_sum_string_valid_forms(): void
+    {
+        $this->assertSame(500000, Tiyin::fromSumString('5000.00'));
+        $this->assertSame(500050, Tiyin::fromSumString('5000.5'));
+        $this->assertSame(500000, Tiyin::fromSumString('5000'));
+        $this->assertSame(-12050, Tiyin::fromSumString('-120.50'));
+        $this->assertSame(0, Tiyin::fromSumString('0'));
     }
 }

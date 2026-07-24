@@ -21,8 +21,12 @@ final class Tiyin
     // Inbound SUM decimal strings ("5000.00") to int tiyin; digit math, no floats.
     public static function fromSumString(string $sum): int
     {
+        if (preg_match('/^-?\d+(\.\d{1,2})?$/', $sum) !== 1) {
+            throw new InvalidAmountException("Malformed SUM amount string: '{$sum}'");
+        }
+
         [$whole, $fraction] = array_pad(explode('.', $sum, 2), 2, '');
-        $fraction = substr(str_pad($fraction, 2, '0'), 0, 2);
+        $fraction = str_pad($fraction, 2, '0');
 
         return (int) ($whole.$fraction);
     }
