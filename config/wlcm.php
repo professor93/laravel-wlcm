@@ -32,6 +32,8 @@ return [
         'path' => 'wlcm/webhook',
         'handler' => null,
         'subscription_handler' => null,
+        // Reject signed deliveries older than this many seconds; null disables the check.
+        'tolerance_seconds' => 300,
     ],
 
     'storage' => [

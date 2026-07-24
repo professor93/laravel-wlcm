@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Unit\Webhooks;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -14,6 +15,14 @@ use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class VerifySignatureTest extends TestCase
 {
+    #[\Override]
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     private function request(array $data): Request
     {
         $request = Request::create('/wlcm/webhook', 'POST', $data);
@@ -29,6 +38,15 @@ final class VerifySignatureTest extends TestCase
             'timestamp' => '2026-07-24 12:00:00',
         ];
         $data['signature'] = hash_hmac('sha256', "1254:7788:2:{$data['timestamp']}", 'whsec_test');
+
+        return $data;
+    }
+
+    private function dataStampedAt(string $timestamp): array
+    {
+        $data = $this->validData();
+        $data['timestamp'] = $timestamp;
+        $data['signature'] = hash_hmac('sha256', "1254:7788:2:{$timestamp}", 'whsec_test');
 
         return $data;
     }
@@ -166,6 +184,77 @@ final class VerifySignatureTest extends TestCase
         $this->assertSame(300000, $payload->amountTiyin());
     }
 
+    public function test_missing_amount_422(): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->validData();
+        unset($data['amount']);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 422');
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame('Missing field: amount', $e->getMessage());
+        }
+    }
+
+    public function test_stale_timestamp_403_when_tolerance_set(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', 300);
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->dataStampedAt((string) now()->subSeconds(301)->getTimestampMs());
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+        }
+    }
+
+    public function test_fresh_timestamp_passes_when_tolerance_set(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', 300);
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $request = $this->request($this->dataStampedAt((string) now()->subSeconds(60)->getTimestampMs()));
+
+        $response = $middleware->handle($request, fn ($r) => response()->json(['ok' => true]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertInstanceOf(WebhookPayload::class, $request->attributes->get('wlcm_payload'));
+    }
+
+    public function test_unparseable_timestamp_403_when_tolerance_set(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', 300);
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+
+        try {
+            $middleware->handle($this->request($this->dataStampedAt('not-a-time')), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+        }
+    }
+
+    public function test_null_tolerance_accepts_ancient_timestamp(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', null);
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+
+        $response = $middleware->handle(
+            $this->request($this->dataStampedAt('2020-01-01 00:00:00')),
+            fn ($r) => response()->json(['ok' => true]),
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     private function subscriptionData(): array
     {
         $data = [
@@ -214,6 +303,25 @@ final class VerifySignatureTest extends TestCase
             $this->fail('expected 422');
         } catch (HttpException $e) {
             $this->assertSame(422, $e->getStatusCode());
+        }
+    }
+
+    public function test_subscription_stale_timestamp_403_when_tolerance_set(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', 300);
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+
+        $data = $this->subscriptionData();
+        $data['timestamp'] = (string) now()->subSeconds(301)->getTimestampMs();
+        $data['signature'] = hash_hmac('sha256', "order-1001:subscription.activated:{$data['timestamp']}", 'whsec_test');
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
         }
     }
 }

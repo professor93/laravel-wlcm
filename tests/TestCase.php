@@ -22,5 +22,6 @@ abstract class TestCase extends Orchestra
             'api_secret' => 'sk_test_secret',
             'webhook_secret' => 'whsec_test',
         ]);
+        $app['config']->set('wlcm.webhook.tolerance_seconds', null);
     }
 }

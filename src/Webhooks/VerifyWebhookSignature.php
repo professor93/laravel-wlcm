@@ -12,7 +12,7 @@ use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 
 final readonly class VerifyWebhookSignature
 {
-    private const array REQUIRED_PAYMENT = ['order_id', 'payment_id', 'state', 'timestamp'];
+    private const array REQUIRED_PAYMENT = ['order_id', 'payment_id', 'amount', 'state', 'timestamp'];
 
     private const array REQUIRED_SUBSCRIPTION = ['external_order_id', 'event', 'timestamp'];
 
@@ -70,8 +70,34 @@ final readonly class VerifyWebhookSignature
             abort(403, 'Invalid webhook signature');
         }
 
+        $tolerance = $this->config->get('wlcm.webhook.tolerance_seconds');
+
+        if (is_int($tolerance) && $tolerance > 0) {
+            $deliveredAt = self::parseTimestamp($payload->timestamp);
+
+            if ($deliveredAt === null || abs(now()->getTimestamp() - $deliveredAt) > $tolerance) {
+                abort(403, 'Stale webhook timestamp');
+            }
+        }
+
         $request->attributes->set('wlcm_payload', $payload);
 
         return $next($request);
+    }
+
+    // Deliveries carry ms-epoch timestamps; tolerate s-epoch and datetime strings.
+    private static function parseTimestamp(string $timestamp): ?int
+    {
+        if (preg_match('/^\d{13}$/', $timestamp) === 1) {
+            return intdiv((int) $timestamp, 1000);
+        }
+
+        if (preg_match('/^\d{10}$/', $timestamp) === 1) {
+            return (int) $timestamp;
+        }
+
+        $parsed = strtotime($timestamp);
+
+        return $parsed === false ? null : $parsed;
     }
 }
