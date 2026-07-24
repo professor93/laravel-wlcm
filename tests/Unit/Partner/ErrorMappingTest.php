@@ -246,4 +246,36 @@ final class ErrorMappingTest extends TestCase
             $this->assertSame(['amount' => ['Must be positive']], $e->errors());
         }
     }
+
+    public function test_successful_response_with_html_body_throws_server_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            '<html>502 Bad Gateway (but says 200)</html>', 200, ['Content-Type' => 'text/html'],
+        )]);
+
+        try {
+            Wlcm::partner()->orders()->status(410);
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertStringContainsString('non-JSON body', $e->getMessage());
+            $this->assertSame(200, $e->responseStatus);
+        }
+    }
+
+    public function test_successful_scalar_json_body_throws_server_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('"ok"', 200)]);
+
+        $this->expectException(ServerException::class);
+        Wlcm::partner()->orders()->status(410);
+    }
+
+    public function test_successful_empty_object_body_still_returns_array(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('{}', 200)]);
+
+        $status = Wlcm::partner()->orders()->status(410);
+
+        $this->assertFalse($status->isPaid);
+    }
 }

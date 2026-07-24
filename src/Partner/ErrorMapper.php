@@ -22,7 +22,15 @@ final class ErrorMapper
             $json = $response->json();
 
             if (! is_array($json)) {
-                return [];
+                // 200 with garbage body (proxy page, truncated JSON) must never read as "not paid".
+                throw new ServerException(
+                    "WLCM returned HTTP {$response->status()} with a non-JSON body",
+                    connectionName: $connectionName,
+                    requestMethod: $method,
+                    requestPath: $url,
+                    responseStatus: $response->status(),
+                    responseBody: substr($response->body(), 0, 500),
+                );
             }
 
             /** @var array<string, mixed> $json */
