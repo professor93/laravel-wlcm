@@ -1,0 +1,74 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Uzbek\Wlcm;
+
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Partner\PartnerClient;
+
+final class Connection
+{
+    private ?PartnerClient $partner = null;
+
+    /** @param array<string, mixed> $config */
+    public function __construct(
+        public readonly string $name,
+        private readonly array $config,
+    ) {}
+
+    public function partner(): PartnerClient
+    {
+        if ($this->partner === null) {
+            $config = $this->section('partner');
+            $this->requireKeys('partner', $config, ['base_url', 'api_key', 'api_secret']);
+            $http = $this->httpConfig();
+            /**
+             * @var PartnerClientConfigShape $config
+             * @var WlcmHttpShape $http
+             */
+            $this->partner = new PartnerClient($this->name, $config, $http);
+        }
+
+        return $this->partner;
+    }
+
+    /** @return array<string, mixed> */
+    public function section(string $key): array
+    {
+        $section = $this->config[$key] ?? null;
+
+        if (! is_array($section) || $section === []) {
+            throw MissingConfigurationException::forKey("wlcm.connections.{$this->name}.{$key}");
+        }
+
+        /** @var array<string, mixed> $section */
+        return $section;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  list<string>  $keys
+     */
+    private function requireKeys(string $section, array $config, array $keys): void
+    {
+        foreach ($keys as $key) {
+            $value = $config[$key] ?? null;
+
+            if (! is_string($value) || $value === '') {
+                throw MissingConfigurationException::forKey("wlcm.connections.{$this->name}.{$section}.{$key}");
+            }
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function httpConfig(): array
+    {
+        $http = $this->config['http'] ?? null;
+
+        $result = is_array($http) ? $http : ['timeout' => 15, 'connect_timeout' => 5, 'get_retries' => 2];
+
+        /** @var array<string, mixed> $result */
+        return $result;
+    }
+}

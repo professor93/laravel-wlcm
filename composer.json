@@ -1,0 +1,40 @@
+{
+    "name": "uzbek/laravel-wlcm",
+    "description": "Laravel client for WLCM payment platform: partner API, subscribe API, webhooks",
+    "keywords": ["laravel", "wlcm", "payment", "uzbekistan", "paylov"],
+    "license": "MIT",
+    "type": "library",
+    "authors": [{"name": "professor93"}],
+    "require": {
+        "php": "^8.4",
+        "illuminate/contracts": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/support": "^13.0",
+        "illuminate/database": "^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^11.0",
+        "phpunit/phpunit": "^12.4",
+        "larastan/larastan": "^3.10",
+        "laravel/pint": "^1.29"
+    },
+    "autoload": {
+        "psr-4": {"Uzbek\\Wlcm\\": "src/"}
+    },
+    "autoload-dev": {
+        "psr-4": {"Uzbek\\Wlcm\\Tests\\": "tests/"}
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["Uzbek\\Wlcm\\WlcmServiceProvider"],
+            "aliases": {"Wlcm": "Uzbek\\Wlcm\\Facades\\Wlcm"}
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse",
+        "format": "pint"
+    },
+    "minimum-stability": "stable",
+    "config": {"sort-packages": true}
+}

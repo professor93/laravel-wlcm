@@ -1,0 +1,26 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+parameters:
+    level: max
+    paths:
+        - src
+    typeAliases:
+        WlcmJsonScalar: 'bool|int|float|string|null'
+        WlcmHttpShape: 'array{get_retries?: WlcmJsonScalar, timeout?: WlcmJsonScalar, connect_timeout?: WlcmJsonScalar}'
+        PartnerClientConfigShape: 'array{base_url: WlcmJsonScalar, api_key: WlcmJsonScalar, api_secret: WlcmJsonScalar, split_amount_unit?: WlcmJsonScalar}'
+        WebhookPayloadShape: 'array{external_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, state?: WlcmJsonScalar, provider?: WlcmJsonScalar, timestamp?: WlcmJsonScalar, signature?: WlcmJsonScalar}'
+        SubscriptionWebhookPayloadShape: 'array{event?: WlcmJsonScalar, external_order_id?: WlcmJsonScalar, external_user_id?: WlcmJsonScalar, subscription_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, timestamp?: WlcmJsonScalar, signature?: WlcmJsonScalar}'
+        CheckoutResponseShape: 'array{order_id: WlcmJsonScalar, external_id?: WlcmJsonScalar, state?: WlcmJsonScalar, checkout_url?: WlcmJsonScalar, message?: WlcmJsonScalar, transaction_id?: WlcmJsonScalar, otp_sent_phone?: WlcmJsonScalar, cid?: WlcmJsonScalar}'
+        FiscalReceiptShape: 'array{id: WlcmJsonScalar, payment_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, receipt_type?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar}'
+        FiscalRefundResponseShape: 'array{message?: WlcmJsonScalar, fiscal_id?: WlcmJsonScalar}'
+        FiscalRegisterResponseShape: 'array{message?: WlcmJsonScalar, fiscal_id?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar}'
+        OtpConfirmResponseShape: 'array{success?: WlcmJsonScalar, order_id?: WlcmJsonScalar, message?: WlcmJsonScalar}'
+        SplitRecipientShape: 'array{id: WlcmJsonScalar, recipient_type: WlcmJsonScalar, recipient_id: WlcmJsonScalar, split_type: WlcmJsonScalar, amount: int|float|string, percent_value?: int|float|string|null, state?: WlcmJsonScalar, state_text?: WlcmJsonScalar}'
+        PartnerInfoShape: 'array{id: WlcmJsonScalar, name: WlcmJsonScalar, company_name?: WlcmJsonScalar, receipt_item_name?: WlcmJsonScalar, email?: WlcmJsonScalar, phone?: WlcmJsonScalar, partner_type?: WlcmJsonScalar, status?: WlcmJsonScalar, is_active?: WlcmJsonScalar, created_at?: WlcmJsonScalar, sub_partners?: array<int, array<string, mixed>>, cancel_payment_enabled?: WlcmJsonScalar, show_phone_number?: WlcmJsonScalar}'
+        SplitResponseShape: 'array{payment_id: WlcmJsonScalar, split_type?: WlcmJsonScalar, total_recipients?: WlcmJsonScalar, total_split_amount?: int|float|string|null, splits?: array<int, SplitRecipientShape>}'
+        PaymentProviderInfoShape: 'array{name?: WlcmJsonScalar, label?: WlcmJsonScalar, sort_order?: WlcmJsonScalar, is_active?: WlcmJsonScalar, icon?: WlcmJsonScalar}'
+        OrderStatusShape: 'array{order_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, state?: WlcmJsonScalar, is_paid?: WlcmJsonScalar, is_pending?: WlcmJsonScalar, is_cancelled?: WlcmJsonScalar, is_completed?: WlcmJsonScalar, status_explanation?: array<string, mixed>, extra_data?: array<string, mixed>, payment_id?: WlcmJsonScalar, gateway?: WlcmJsonScalar, transaction_id?: WlcmJsonScalar, performed_at?: WlcmJsonScalar}'
+        WebhookInfoShape: 'array{id?: WlcmJsonScalar, url?: WlcmJsonScalar, secret_key?: WlcmJsonScalar, is_active?: WlcmJsonScalar, events?: array<int, mixed>, last_triggered_at?: WlcmJsonScalar, last_status_code?: WlcmJsonScalar, created_at?: WlcmJsonScalar}'
+        SubscriptionShape: 'array{id?: WlcmJsonScalar, partner_id?: WlcmJsonScalar, external_order_id?: WlcmJsonScalar, external_user_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, last_payment_id?: WlcmJsonScalar, card_number_masked?: WlcmJsonScalar, card_vendor?: WlcmJsonScalar, last_payment_status?: WlcmJsonScalar, last_payment_amount?: WlcmJsonScalar, last_payment_at?: WlcmJsonScalar, last_payment_transaction_id?: WlcmJsonScalar, last_fiscal_number?: WlcmJsonScalar, return_url?: WlcmJsonScalar, partner_logo_url?: WlcmJsonScalar, created_at?: WlcmJsonScalar}'
+        SubscriptionChargeResultShape: 'array{status?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, message?: WlcmJsonScalar}'
+        SubscriptionCardAttachedShape: 'array{card_id?: WlcmJsonScalar, otp_sent_phone?: WlcmJsonScalar, reused?: WlcmJsonScalar}'
