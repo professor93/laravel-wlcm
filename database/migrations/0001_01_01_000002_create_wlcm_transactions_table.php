@@ -23,9 +23,12 @@ return new class extends Migration
             $table->integer('state')->default(0);
             $table->string('state_text', 32)->nullable();
             $table->json('meta')->nullable();
+            $table->timestamp('processed_at')->nullable();
+            $table->string('delivery_key', 160)->nullable();
             $table->timestamps();
 
             $table->unique(['connection', 'payment_id']);
+            $table->unique(['connection', 'delivery_key']);
         });
     }
 

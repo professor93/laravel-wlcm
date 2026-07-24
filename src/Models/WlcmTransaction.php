@@ -16,5 +16,6 @@ final class WlcmTransaction extends Model
         'meta' => 'array',
         'amount_tiyin' => 'integer',
         'state' => 'integer',
+        'processed_at' => 'datetime',
     ];
 }
