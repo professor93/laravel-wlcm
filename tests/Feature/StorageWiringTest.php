@@ -104,4 +104,15 @@ final class StorageWiringTest extends TestCase
         $this->assertSame(2, $tx->state);
         $this->assertSame(120000, $tx->amount_tiyin);
     }
+
+    public function test_webhook_create_never_logs_secret_key(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['id' => 5, 'url' => 'https://a.test/h', 'secret_key' => 'whsec_x', 'is_active' => true, 'created_at' => '2026-07-25'], 201)]);
+
+        Wlcm::partner()->webhooks()->create('https://a.test/h', 'whsec_x');
+
+        $log = WlcmLog::sole();
+        $this->assertArrayNotHasKey('secret_key', $log->request_body);
+        $this->assertArrayNotHasKey('secret_key', $log->response_body);
+    }
 }

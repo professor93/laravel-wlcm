@@ -10,7 +10,7 @@ final class Masker
 
     private const array STAR_KEYS = ['otp', 'password', 'expire_date', 'expiredate'];
 
-    private const array DROP_KEYS = ['api_secret', 'consumer_secret', 'access_token', 'refresh_token', 'authorization', 'signature'];
+    private const array DROP_KEYS = ['api_secret', 'api_key', 'secret_key', 'client_secret', 'card_token', 'consumer_secret', 'access_token', 'refresh_token', 'authorization', 'signature'];
 
     /**
      * @param  array<array-key, mixed>  $data
@@ -35,7 +35,7 @@ final class Masker
 
             if (is_string($normalized) && in_array($normalized, self::PAN_KEYS, true) && is_scalar($value)) {
                 $digits = preg_replace('/\D/', '', (string) $value) ?? '';
-                $out[$key] = strlen($digits) >= 10
+                $out[$key] = strlen($digits) >= 13
                     ? substr($digits, 0, 6).str_repeat('*', strlen($digits) - 10).substr($digits, -4)
                     : '***';
 

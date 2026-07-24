@@ -44,4 +44,23 @@ final class MaskerTest extends TestCase
         $out = Masker::mask(['card_number' => 9860991234569999]);
         $this->assertSame('986099******9999', $out['card_number']);
     }
+
+    public function test_webhook_and_api_secrets_removed(): void
+    {
+        $out = Masker::mask(['secret_key' => 'whsec_live', 'api_key' => 'pk_live', 'client_secret' => 'cs', 'card_token' => 'tok', 'url' => 'https://x.test']);
+        $this->assertSame(['url' => 'https://x.test'], $out);
+    }
+
+    public function test_pan_shorter_than_13_digits_fully_masked(): void
+    {
+        $out = Masker::mask(['card_number' => '1234567890', 'pan' => '123456789012']);
+        $this->assertSame('***', $out['card_number']);
+        $this->assertSame('***', $out['pan']);
+    }
+
+    public function test_pan_13_digits_keeps_first6_last4(): void
+    {
+        $out = Masker::mask(['card_number' => '1234567890123']);
+        $this->assertSame('123456***0123', $out['card_number']);
+    }
 }
