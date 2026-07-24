@@ -255,6 +255,60 @@ final class VerifySignatureTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    public function test_string_tolerance_still_enforced(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', '300');
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->dataStampedAt((string) now()->subSeconds(301)->getTimestampMs());
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+        }
+    }
+
+    public function test_missing_tolerance_key_defaults_closed(): void
+    {
+        $webhook = config('wlcm.webhook');
+        unset($webhook['tolerance_seconds']);
+        config()->set('wlcm.webhook', $webhook);
+        $this->assertFalse(config()->has('wlcm.webhook.tolerance_seconds'));
+
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->dataStampedAt((string) now()->subSeconds(301)->getTimestampMs());
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+        }
+    }
+
+    public function test_invalid_tolerance_throws(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', true);
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $request = $this->request($this->dataStampedAt((string) now()->subSeconds(60)->getTimestampMs()));
+
+        $this->expectException(MissingConfigurationException::class);
+        $middleware->handle($request, fn ($r) => response()->json());
+    }
+
+    public function test_config_ships_tolerance_default(): void
+    {
+        $config = require dirname(__DIR__, 3).'/config/wlcm.php';
+
+        $this->assertSame(300, $config['webhook']['tolerance_seconds']);
+    }
+
     private function subscriptionData(): array
     {
         $data = [

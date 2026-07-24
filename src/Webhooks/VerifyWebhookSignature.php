@@ -70,12 +70,16 @@ final readonly class VerifyWebhookSignature
             abort(403, 'Invalid webhook signature');
         }
 
-        $tolerance = $this->config->get('wlcm.webhook.tolerance_seconds');
+        $tolerance = $this->config->get('wlcm.webhook.tolerance_seconds', 300);
 
-        if (is_int($tolerance) && $tolerance > 0) {
+        if ($tolerance !== null) {
+            if (! is_numeric($tolerance) || (int) $tolerance <= 0) {
+                throw MissingConfigurationException::forKey('wlcm.webhook.tolerance_seconds');
+            }
+
             $deliveredAt = self::parseTimestamp($payload->timestamp);
 
-            if ($deliveredAt === null || abs(now()->getTimestamp() - $deliveredAt) > $tolerance) {
+            if ($deliveredAt === null || abs(now()->getTimestamp() - $deliveredAt) > (int) $tolerance) {
                 abort(403, 'Stale webhook timestamp');
             }
         }
