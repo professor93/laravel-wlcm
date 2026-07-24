@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Partner\Resources;
 
 use Uzbek\Wlcm\Enums\SplitType;
+use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Partner\Data;
 use Uzbek\Wlcm\Partner\Data\OtpConfirmResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
@@ -86,22 +87,30 @@ final readonly class Payments
      */
     private function convertFixedAmounts(array $recipients): array
     {
-        if ($this->client->splitAmountUnit() !== 'sum') {
-            return $recipients;
-        }
+        $convert = $this->client->splitAmountUnit() === 'sum';
 
-        return array_map(static function (array $recipient): array {
+        return array_map(static function (array $recipient) use ($convert): array {
             $type = $recipient['split_type'] ?? null;
             $type = $type instanceof SplitType ? $type->value : $type;
 
-            if ($type === SplitType::Fixed->value && is_int($recipient['amount'] ?? null)) {
+            if ($type !== SplitType::Fixed->value) {
+                return $recipient;
+            }
+
+            $amount = $recipient['amount'] ?? null;
+
+            if (! is_int($amount)) {
+                // Non-int here would ship the wrong unit silently — the 100x mistake.
+                throw new InvalidAmountException('Fixed split amount must be int tiyin, got '.get_debug_type($amount));
+            }
+
+            if ($convert) {
                 // UNIT: sandbox-proven SUM (server compares fixed totals to the payment SUM
                 // value, e.g. "Fixed split total 5000 must equal payment amount 10000.00").
                 // Pending WLCM confirmation 2026-07-25. If they say tiyin, swap to the
                 // commented line below or set partner.split_amount_unit to 'tiyin'.
-                $wire = Tiyin::toSum($recipient['amount']); // active: SUM
-                // $wire = $recipient['amount'];            // alt: tiyin passthrough (docs claim tiyin) — uncomment if WLCM confirms tiyin
-                $recipient['amount'] = $wire;
+                $recipient['amount'] = Tiyin::toSum($amount); // active: SUM
+                // $recipient['amount'] = $amount;            // alt: tiyin passthrough (docs claim tiyin) — uncomment if WLCM confirms tiyin
             }
 
             return $recipient;
