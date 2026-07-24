@@ -120,6 +120,7 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('7788', $tx->payment_id);
         $this->assertSame(2, $tx->state);
         $this->assertSame(120000, $tx->amount_tiyin);
+        $this->assertNotNull($tx->processed_at);
     }
 
     public function test_checkout_survives_broken_log_table(): void
@@ -158,6 +159,21 @@ final class StorageWiringTest extends TestCase
         $this->assertSame(-2, WlcmTransaction::sole()->state);
         Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
         $this->assertSame(1, WlcmLog::where('result', 'stale')->count());
+    }
+
+    public function test_replay_via_init_state_cannot_reopen_terminal_row(): void
+    {
+        Event::fake();
+        $success = $this->webhookData('2');
+
+        $this->postJson('/wlcm/webhook', $success)->assertOk();
+        $this->postJson('/wlcm/webhook', $this->webhookData('-2'))->assertOk();
+        $this->postJson('/wlcm/webhook', $this->webhookData('0'))->assertOk();
+        $this->postJson('/wlcm/webhook', $success)->assertOk();
+
+        $this->assertSame(-2, WlcmTransaction::sole()->state);
+        Event::assertDispatchedTimes(PaymentSucceeded::class, 1);
+        $this->assertSame(2, WlcmLog::query()->where('result', 'stale')->count());
     }
 
     public function test_crash_recovery_refires_events(): void

@@ -70,14 +70,10 @@ final class TransactionRecorder
                 return $row->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
             }
 
-            // Terminal states never regress: cancelled stays cancelled, success ignores late init states.
-            $incoming = $payload->stateEnum();
-            $current = $row?->state;
+            // Terminal rows accept only a post-success cancel (-2); everything else is a stale replay.
+            $terminal = [PaymentState::Success->value, PaymentState::Cancelled->value, PaymentState::CancelledDuringInit->value];
 
-            if ($row !== null && (
-                (in_array($current, [PaymentState::Cancelled->value, PaymentState::CancelledDuringInit->value], true) && $incoming === PaymentState::Success)
-                || ($current === PaymentState::Success->value && in_array($payload->state, [PaymentState::Created->value, PaymentState::Initiating->value], true))
-            )) {
+            if ($row !== null && in_array($row->state, $terminal, true) && $payload->state !== PaymentState::Cancelled->value) {
                 return WebhookOutcome::Stale;
             }
 
@@ -150,13 +146,18 @@ final class TransactionRecorder
             ]);
 
             return WebhookOutcome::Fresh;
-        } catch (UniqueConstraintViolationException) {
+        } catch (UniqueConstraintViolationException $e) {
             $existing = WlcmTransaction::query()
                 ->where('connection', $payload->connection)
                 ->where('delivery_key', $key)
+                ->lockForUpdate()
                 ->first();
 
-            return $existing?->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
+            if ($existing === null) {
+                throw $e;
+            }
+
+            return $existing->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
         }
     }
 
@@ -174,6 +175,6 @@ final class TransactionRecorder
 
     private static function subscriptionKey(SubscriptionWebhookPayload $payload): string
     {
-        return "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}";
+        return hash('sha256', "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}");
     }
 }
