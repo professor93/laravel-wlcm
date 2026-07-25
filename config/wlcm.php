@@ -41,9 +41,4 @@ return [
         'transactions' => false,
         'prune_days' => 90,
     ],
-
-    'cache' => [
-        'store' => null,
-        'prefix' => 'wlcm',
-    ],
 ];
