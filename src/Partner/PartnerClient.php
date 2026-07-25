@@ -152,9 +152,11 @@ final class PartnerClient
 
             $ids = [
                 'external_id' => $this->maskedId($externalId),
-                'order_id' => $this->maskedId($orderId),
-                'payment_id' => $this->maskedId($paymentId),
-                'transaction_id' => $this->maskedId($transactionId),
+                // Server-minted, so no merchant prose can hide in them. Scrubbing would
+                // only mangle a luhn-coincident id and break the log-to-transaction join.
+                'order_id' => $this->rawId($orderId),
+                'payment_id' => $this->rawId($paymentId),
+                'transaction_id' => $this->rawId($transactionId),
             ];
         }
 
@@ -201,10 +203,15 @@ final class PartnerClient
         return $masked;
     }
 
-    // Upstream echoes merchant free-text back into ids, so columns need the body scrub too.
+    // Upstream echoes merchant free-text back into the reference, so it needs the body scrub too.
     private function maskedId(mixed $value): ?string
     {
         return is_scalar($value) ? Masker::scrubPans((string) $value) : null;
+    }
+
+    private function rawId(mixed $value): ?string
+    {
+        return is_scalar($value) ? (string) $value : null;
     }
 
     private function elapsedMs(int|float $startedNs): int

@@ -45,8 +45,8 @@ final class TransactionRecorder implements TransactionStore
                 'connection' => $connection,
                 'api' => 'partner',
                 'external_id' => self::scrubbed($response->externalId),
-                'order_id' => self::scrubbed((string) $response->orderId),
-                'transaction_id' => self::scrubbed($response->transactionId),
+                'order_id' => (string) $response->orderId,
+                'transaction_id' => $response->transactionId,
                 'amount_tiyin' => (int) $amount,
                 'provider' => $provider === null ? null : self::scrubbed((string) $provider),
                 'state' => $response->state,
@@ -69,7 +69,7 @@ final class TransactionRecorder implements TransactionStore
         return DB::transaction(function () use ($payload): WebhookOutcome {
             $row = WlcmTransaction::query()
                 ->where('connection', ColumnFit::value('connection', $payload->connection))
-                ->where('payment_id', self::key('payment_id', $payload->paymentId))
+                ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
                 ->lockForUpdate()
                 ->first();
 
@@ -87,8 +87,8 @@ final class TransactionRecorder implements TransactionStore
             $attributes = ColumnFit::row([
                 'api' => 'partner',
                 'external_id' => self::scrubbed($payload->externalId),
-                'order_id' => self::scrubbed($payload->orderId),
-                'payment_id' => self::scrubbed($payload->paymentId),
+                'order_id' => $payload->orderId,
+                'payment_id' => $payload->paymentId,
                 'amount_tiyin' => $payload->amountTiyin(),
                 'provider' => self::scrubbed($payload->provider),
                 'state' => $payload->state,
@@ -104,7 +104,7 @@ final class TransactionRecorder implements TransactionStore
 
             $checkoutRow = WlcmTransaction::query()
                 ->where('connection', ColumnFit::value('connection', $payload->connection))
-                ->where('order_id', self::key('order_id', $payload->orderId))
+                ->where('order_id', ColumnFit::value('order_id', $payload->orderId))
                 ->whereNull('payment_id')
                 ->lockForUpdate()
                 ->first();
@@ -131,7 +131,7 @@ final class TransactionRecorder implements TransactionStore
 
         WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
-            ->where('payment_id', self::key('payment_id', $payload->paymentId))
+            ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
             ->update(['processed_at' => now()]);
     }
 
@@ -212,16 +212,11 @@ final class TransactionRecorder implements TransactionStore
         return $secret;
     }
 
-    // Upstream echoes merchant free-text back into ids. wlcm_logs scrubs its own copy of
-    // these columns, so this table scrubs too — one pan must not survive in either place.
+    // Only merchant free-text can hide a pan, and wlcm_logs scrubs its copy of the same
+    // field. Server-minted ids are never scrubbed: the scrub is lossy, and two real ids
+    // can collapse onto one stored value.
     private static function scrubbed(?string $value): ?string
     {
         return $value === null ? null : Masker::scrubPans($value);
-    }
-
-    // Lookups go through the same scrub-then-cut the write did, or a stored row is lost.
-    private static function key(string $column, ?string $value): ?string
-    {
-        return ColumnFit::value($column, self::scrubbed($value));
     }
 }

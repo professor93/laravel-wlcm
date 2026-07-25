@@ -19,6 +19,7 @@ use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\Masker;
 use Uzbek\Wlcm\Storage\TransactionStore;
+use Uzbek\Wlcm\Storage\WebhookLogIds;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 
 final readonly class WebhookController
@@ -35,22 +36,27 @@ final readonly class WebhookController
         /** @var WebhookPayload|SubscriptionWebhookPayload $payload */
         $payload = $request->attributes->get('wlcm_payload');
 
+        /** @var array<string, mixed> $raw */
+        $raw = (array) $request->all();
         /** @var array<string, mixed> $requestData */
-        $requestData = Masker::scrubProse(Masker::mask((array) $request->all()));
+        $requestData = Masker::scrubProse(Masker::mask($raw));
+        // Blob keeps the whole-body scrub; correlation columns come off the raw delivery,
+        // because that scrub would mangle a luhn-coincident order_id or payment_id.
+        $logIds = WebhookLogIds::from($raw);
 
         if ($payload instanceof SubscriptionWebhookPayload) {
-            return $this->handleSubscription($payload, $requestData);
+            return $this->handleSubscription($payload, $requestData, $logIds);
         }
 
         $outcome = $this->transactions->applyWebhook($payload);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate');
+            $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate', $logIds);
 
             return new JsonResponse(['status' => 'ok']);
         }
 
-        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok');
+        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
 
         event(new WebhookReceived($payload));
 
@@ -77,18 +83,21 @@ final readonly class WebhookController
         return new JsonResponse(['status' => 'ok']);
     }
 
-    /** @param array<string, mixed> $requestData */
-    private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData): JsonResponse
+    /**
+     * @param  array<string, mixed>  $requestData
+     * @param  array<string, string|null>  $logIds
+     */
+    private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData, array $logIds): JsonResponse
     {
         $outcome = $this->transactions->claimSubscription($payload);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            $this->logStore->webhook((string) $payload->connection, $requestData, 'duplicate');
+            $this->logStore->webhook((string) $payload->connection, $requestData, 'duplicate', $logIds);
 
             return new JsonResponse(['status' => 'ok']);
         }
 
-        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok');
+        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
 
         event(new WebhookReceived($payload));
 

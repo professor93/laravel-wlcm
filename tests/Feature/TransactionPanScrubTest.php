@@ -48,10 +48,12 @@ final class TransactionPanScrubTest extends TestCase
 
     public function test_a_pan_in_a_checkout_reference_is_scrubbed_in_both_audit_tables(): void
     {
+        // Pan rides the merchant reference, the only id a merchant writes. The server
+        // mints transaction_id, so it carries a server-shaped value here.
         $prose = 'order for card '.self::PAN;
         Http::fake(['api.wlcm.test/*' => Http::response([
             'order_id' => 1254, 'external_id' => $prose, 'state' => 1,
-            'checkout_url' => 'https://c.test/x', 'transaction_id' => 'tx for '.self::PAN,
+            'checkout_url' => 'https://c.test/x', 'transaction_id' => 'mock_tx_1784911325121',
         ], 201)]);
 
         Wlcm::partner()->checkout()->create(

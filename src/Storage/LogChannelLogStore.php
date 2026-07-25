@@ -49,22 +49,25 @@ final class LogChannelLogStore implements LogStore
         ]);
     }
 
-    /** @param array<string, mixed> $payload */
-    public function webhook(string $connection, array $payload, string $result): void
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, string|null>  $ids
+     */
+    public function webhook(string $connection, array $payload, string $result, array $ids = []): void
     {
         if (! $this->enabled()) {
             return;
         }
 
-        $ids = WebhookLogIds::from($payload);
+        $ids = $ids !== [] ? $ids : WebhookLogIds::from($payload);
 
         $this->write([
             'connection' => $connection,
             'direction' => 'webhook',
             'request_body' => $payload,
-            'external_id' => $ids['external_id'],
-            'order_id' => $ids['order_id'],
-            'payment_id' => $ids['payment_id'],
+            'external_id' => $ids['external_id'] ?? null,
+            'order_id' => $ids['order_id'] ?? null,
+            'payment_id' => $ids['payment_id'] ?? null,
             'result' => $result,
             'created_at' => now()->toIso8601String(),
         ]);

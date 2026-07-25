@@ -463,7 +463,7 @@ final class StorageWiringTest extends TestCase
                 $this->calls[] = $result;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void
             {
                 $this->calls[] = "webhook:{$result}";
             }
@@ -583,7 +583,7 @@ final class StorageWiringTest extends TestCase
                 $this->requestBody = $requestBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
@@ -609,7 +609,7 @@ final class StorageWiringTest extends TestCase
                 $this->responseBody = $responseBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
@@ -689,7 +689,7 @@ final class StorageWiringTest extends TestCase
                 $this->bodies[] = $responseBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
