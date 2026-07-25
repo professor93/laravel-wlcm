@@ -18,7 +18,7 @@ final readonly class OrderStatus
         public int $orderId,
         public float $amount,
         public string $status,
-        public int $state,
+        public ?int $state,
         public bool $isPaid,
         public bool $isPending,
         public bool $isCancelled,
@@ -50,7 +50,7 @@ final readonly class OrderStatus
             orderId: (int) ($data['order_id'] ?? 0),
             amount: (float) ($data['amount'] ?? 0),
             status: (string) ($data['status'] ?? ''),
-            state: (int) $stateRaw,
+            state: is_numeric($stateRaw) ? (int) $stateRaw : null,
             isPaid: (bool) ($data['is_paid'] ?? false),
             isPending: (bool) ($data['is_pending'] ?? false),
             isCancelled: (bool) ($data['is_cancelled'] ?? false),
@@ -67,7 +67,7 @@ final readonly class OrderStatus
 
     public function stateEnum(): ?PaymentState
     {
-        return PaymentState::tryFrom($this->state);
+        return $this->state === null ? null : PaymentState::tryFrom($this->state);
     }
 
     // Server sends SUM as a JSON float; pin to two decimals as a string, then digit math.

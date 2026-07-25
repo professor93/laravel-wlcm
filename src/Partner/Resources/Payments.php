@@ -92,6 +92,7 @@ final readonly class Payments
         return array_map(static function (array $recipient) use ($convert): array {
             $type = $recipient['split_type'] ?? null;
             $type = $type instanceof SplitType ? $type->value : $type;
+            $type = is_string($type) ? strtolower($type) : $type;
 
             if ($type !== SplitType::Fixed->value) {
                 return $recipient;
@@ -102,6 +103,10 @@ final readonly class Payments
             if (! is_int($amount)) {
                 // Non-int here would ship the wrong unit silently — the 100x mistake.
                 throw new InvalidAmountException('Fixed split amount must be int tiyin, got '.get_debug_type($amount));
+            }
+
+            if (! $convert && $amount <= 0) {
+                throw new InvalidAmountException("Fixed split amount must be positive tiyin, got {$amount}");
             }
 
             if ($convert) {

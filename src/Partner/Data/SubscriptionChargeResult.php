@@ -41,6 +41,6 @@ final readonly class SubscriptionChargeResult
 
     public function errorCodeEnum(): ?WlcmErrorCode
     {
-        return $this->message === null ? null : WlcmErrorCode::tryFrom($this->message);
+        return $this->isFailed() && $this->message !== null ? WlcmErrorCode::tryFrom($this->message) : null;
     }
 }

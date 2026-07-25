@@ -167,7 +167,7 @@ final class PartnerClient
             $response->status(),
             $durationMs,
             ids: $ids,
-            result: $response->successful() ? 'ok' : 'error',
+            result: $response->successful() && is_array($json) ? 'ok' : 'error',
         );
 
         return ErrorMapper::handle($response, $this->connectionName, $method, $url);

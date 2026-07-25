@@ -11,7 +11,7 @@ final readonly class CheckoutResponse
     public function __construct(
         public int $orderId,
         public ?string $externalId,
-        public int $state,
+        public ?int $state,
         public ?string $checkoutUrl,
         public ?string $message,
         public ?string $transactionId = null,
@@ -22,10 +22,12 @@ final readonly class CheckoutResponse
     /** @param CheckoutResponseShape $data */
     public static function fromArray(array $data): self
     {
+        $stateRaw = $data['state'] ?? null;
+
         return new self(
             orderId: (int) $data['order_id'],
             externalId: isset($data['external_id']) ? (string) $data['external_id'] : null,
-            state: (int) ($data['state'] ?? 0),
+            state: is_numeric($stateRaw) ? (int) $stateRaw : null,
             checkoutUrl: isset($data['checkout_url']) ? (string) $data['checkout_url'] : null,
             message: isset($data['message']) ? (string) $data['message'] : null,
             transactionId: isset($data['transaction_id']) ? (string) $data['transaction_id'] : null,
@@ -36,6 +38,6 @@ final readonly class CheckoutResponse
 
     public function stateEnum(): ?PaymentState
     {
-        return PaymentState::tryFrom($this->state);
+        return $this->state === null ? null : PaymentState::tryFrom($this->state);
     }
 }

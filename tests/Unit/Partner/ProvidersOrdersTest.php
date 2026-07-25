@@ -102,6 +102,34 @@ final class ProvidersOrdersTest extends TestCase
         $this->assertNull($status->performedAt);
     }
 
+    public function test_order_status_without_state_anywhere_is_null(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 410, 'amount' => 1000.0, 'status' => 'paid',
+            'is_paid' => true, 'is_pending' => false, 'is_cancelled' => false, 'is_completed' => false,
+            'status_explanation' => ['status' => 'paid', 'description' => "To'landi"],
+            'extra_data' => [],
+        ], 200)]);
+
+        $status = Wlcm::partner()->orders()->status(410);
+
+        $this->assertNull($status->state);
+        $this->assertNull($status->stateEnum());
+    }
+
+    public function test_order_status_with_non_numeric_state_is_null(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 410, 'amount' => 1000.0, 'status' => 'weird', 'state' => 'pending',
+            'status_explanation' => [], 'extra_data' => [],
+        ], 200)]);
+
+        $status = Wlcm::partner()->orders()->status(410);
+
+        $this->assertNull($status->state);
+        $this->assertNull($status->stateEnum());
+    }
+
     public function test_order_amount_tiyin_avoids_float_drift(): void
     {
         $amount = 0.0;

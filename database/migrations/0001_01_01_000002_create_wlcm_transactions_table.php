@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('transaction_id', 64)->nullable()->index();
             $table->unsignedBigInteger('amount_tiyin')->default(0);
             $table->string('provider', 32)->nullable();
-            $table->integer('state')->default(0);
+            $table->integer('state')->nullable();
             $table->string('state_text', 32)->nullable();
             $table->json('meta')->nullable();
             $table->timestamp('processed_at')->nullable();

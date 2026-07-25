@@ -128,4 +128,25 @@ final class SplitTest extends TestCase
             ['recipient_id' => 22, 'recipient_type' => 'partner', 'split_type' => 'fixed', 'amount' => '100000'],
         ]);
     }
+
+    public function test_uppercase_fixed_split_type_still_guards_amount(): void
+    {
+        Http::fake();
+
+        $this->expectException(InvalidAmountException::class);
+        Wlcm::partner()->payments()->split(7788, [
+            ['recipient_id' => 22, 'recipient_type' => 'partner', 'split_type' => 'FIXED', 'amount' => '100000'],
+        ]);
+    }
+
+    public function test_negative_fixed_amount_throws_in_tiyin_mode(): void
+    {
+        config()->set('wlcm.connections.main.partner.split_amount_unit', 'tiyin');
+        Http::fake();
+
+        $this->expectException(InvalidAmountException::class);
+        Wlcm::partner()->payments()->split(7788, [
+            ['recipient_id' => 22, 'recipient_type' => 'partner', 'split_type' => 'fixed', 'amount' => -100],
+        ]);
+    }
 }

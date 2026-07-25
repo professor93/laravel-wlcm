@@ -69,6 +69,32 @@ final class CheckoutTest extends TestCase
         $this->assertTrue($c->alreadyPaid());
     }
 
+    public function test_missing_state_is_null_not_created(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1, 'external_id' => null,
+            'checkout_url' => 'https://c.test/x', 'message' => null,
+        ], 200)]);
+
+        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+
+        $this->assertNull($r->state);
+        $this->assertNull($r->stateEnum());
+    }
+
+    public function test_non_numeric_state_is_null(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1, 'external_id' => null, 'state' => 'created',
+            'checkout_url' => 'https://c.test/x', 'message' => null,
+        ], 200)]);
+
+        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+
+        $this->assertNull($r->state);
+        $this->assertNull($r->stateEnum());
+    }
+
     public function test_unknown_state_survives(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([

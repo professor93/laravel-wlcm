@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\WebhookReceived;
+use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
@@ -256,6 +257,34 @@ final class StorageWiringTest extends TestCase
 
         $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
         Exceptions::assertReported(QueryException::class);
+    }
+
+    public function test_non_json_success_body_logs_error_result(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            '<html>502 Bad Gateway (but says 200)</html>', 200, ['Content-Type' => 'text/html'],
+        )]);
+
+        try {
+            Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+            $this->fail('expected ServerException');
+        } catch (ServerException) {
+        }
+
+        $log = WlcmLog::sole();
+        $this->assertSame('error', $log->result);
+        $this->assertSame(200, $log->status_code);
+    }
+
+    public function test_confirm_card_otp_masked_in_both_bodies(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['status' => 'confirmed', 'otp' => '888888'], 200)]);
+
+        Wlcm::partner()->subscriptions()->confirmCard(5, '888888', 3);
+
+        $log = WlcmLog::sole();
+        $this->assertSame('***', $log->request_body['otp']);
+        $this->assertSame('***', $log->response_body['otp']);
     }
 
     public function test_webhook_create_never_logs_secret_key(): void

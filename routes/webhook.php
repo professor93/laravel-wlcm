@@ -13,6 +13,10 @@ $route = Route::post(
 
 $connections = array_keys((array) config('wlcm.connections', []));
 
+// An empty whereIn compiles to an empty requirement, which breaks routing app-wide.
 if ($connections !== []) {
-    $route->whereIn('connection', $connections);
+    $route->whereIn('connection', array_map(
+        static fn (string|int $connection): string => preg_quote((string) $connection, '/'),
+        $connections,
+    ));
 }
