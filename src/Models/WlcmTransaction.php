@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $amount_tiyin
  * @property int|null $state
  * @property Carbon|null $processed_at
+ * @property array<string, mixed>|null $meta
  */
 final class WlcmTransaction extends Model
 {

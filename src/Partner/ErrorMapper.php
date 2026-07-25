@@ -22,6 +22,10 @@ final class ErrorMapper
     /** @return array<string, mixed> */
     public static function handle(Response $response, string $connectionName, string $method, string $url): array
     {
+        // Query carries merchant free-text (fiscalization external_id, subscription lookup),
+        // and exception context is what the merchant's default handler writes to their log.
+        $url = Masker::scrubPans($url);
+
         if ($response->successful()) {
             $json = $response->json();
 

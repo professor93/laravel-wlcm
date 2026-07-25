@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Unit\Partner;
 
+use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
+use Uzbek\Wlcm\Exceptions\ConnectionException;
 use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
 use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
@@ -725,6 +727,93 @@ final class ErrorMappingTest extends TestCase
             $this->fail('expected ServerException');
         } catch (ServerException $e) {
             $this->assertSame(1234567890123456, $e->responseBody);
+        }
+    }
+
+    // Merchant free-text rides two GET query params, and exception context is what
+    // Laravel's default handler writes to the merchant's own log.
+    public function test_pan_in_a_query_string_is_scrubbed_from_the_exception_request_path(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found'], 404)]);
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'order for card 4111111111111111');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertIsString($e->requestPath);
+            $this->assertStringContainsString('411111***1111', $e->requestPath);
+            $this->assertStringNotContainsString('4111111111111111', $e->requestPath);
+        }
+    }
+
+    public function test_pan_in_a_query_string_is_scrubbed_from_the_transport_failure_request_path(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::sequence()
+            ->pushFailedConnection()
+            ->pushFailedConnection()
+            ->pushFailedConnection()]);
+
+        try {
+            Wlcm::partner()->subscriptions()->findByExternalOrderId('order for card 4111111111111111');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertIsString($e->requestPath);
+            $this->assertStringContainsString('411111***1111', $e->requestPath);
+            $this->assertStringNotContainsString('4111111111111111', $e->requestPath);
+        }
+    }
+
+    // Guzzle appends " for {uri}" to every cURL error, so the transport message
+    // carries the query string a second time.
+    public function test_pan_in_a_transport_error_message_is_scrubbed(): void
+    {
+        $url = 'https://api.wlcm.test/api/v1/fiscalization?external_id=order+for+card+4111111111111111';
+        Http::fake(fn () => throw new HttpConnectionException(
+            "cURL error 6: Could not resolve host: api.wlcm.test (see https://curl.se/libcurl/c/libcurl-errors.html) for {$url}",
+        ));
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'order for card 4111111111111111');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('411111***1111', $e->getMessage());
+            $this->assertStringNotContainsString('4111111111111111', $e->getMessage());
+        }
+    }
+
+    public function test_ordinary_transport_error_messages_survive_the_scrub(): void
+    {
+        Http::fake(fn () => throw new HttpConnectionException('cURL error 28: Operation timed out after 15000 milliseconds'));
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertSame('cURL error 28: Operation timed out after 15000 milliseconds', $e->getMessage());
+        }
+    }
+
+    public function test_ordinary_request_paths_survive_the_exception_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found'], 404)]);
+
+        foreach ([
+            '/payments/7788/split' => 'https://api.wlcm.test/api/v1/payments/7788/split',
+            '/partners/me' => 'https://api.wlcm.test/api/v1/partners/me',
+        ] as $path => $expected) {
+            try {
+                Wlcm::partner()->get($path);
+                $this->fail('expected NotFoundException');
+            } catch (NotFoundException $e) {
+                $this->assertSame($expected, $e->requestPath);
+            }
+        }
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'ORD-7');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('https://api.wlcm.test/api/v1/fiscalization?external_id=ORD-7', $e->requestPath);
         }
     }
 

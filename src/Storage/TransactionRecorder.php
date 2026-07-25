@@ -44,7 +44,8 @@ final class TransactionRecorder implements TransactionStore
                 'provider' => $provider === null ? null : (string) $provider,
                 'state' => $response->state,
                 'state_text' => $response->stateEnum()?->name,
-                'meta' => Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid]),
+                // Correlation keys stay raw by design; meta is not one of them.
+                'meta' => Masker::scrubProse(Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid])),
             ]);
         } catch (Throwable $e) {
             report($e); // Audit write must never break payment call.

@@ -783,6 +783,39 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('TX-9', $log->transaction_id);
     }
 
+    // README exempts only correlation keys from the transaction scrub; meta is not one.
+    public function test_pan_prose_in_checkout_meta_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=order+for+card+4111111111111111',
+            'cid' => 'card 4111111111111111',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=order+for+card+411111***1111', $meta['checkout_url']);
+        $this->assertSame('card 411111***1111', $meta['cid']);
+    }
+
+    public function test_ordinary_checkout_meta_survives_the_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=ORD-7&amount=1234567890123456',
+            'cid' => 'cid-7788',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=ORD-7&amount=1234567890123456', $meta['checkout_url']);
+        $this->assertSame('cid-7788', $meta['cid']);
+    }
+
     public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
     {
         // external_id sits outside signature base, so prose there is unauthenticated.
