@@ -15,6 +15,7 @@ use Uzbek\Wlcm\Events\SubscriptionCancelled;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\SubscriptionChargeFailed;
 use Uzbek\Wlcm\Events\WebhookReceived;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Storage\LogWriter;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
@@ -60,9 +61,11 @@ final readonly class WebhookController
         if (is_string($handler) && $handler !== '') {
             $instance = $this->container->make($handler);
 
-            if ($instance instanceof WlcmWebhookHandler) {
-                $instance->handle($payload);
+            if (! $instance instanceof WlcmWebhookHandler) {
+                throw MissingConfigurationException::forKey('wlcm.webhook.handler');
             }
+
+            $instance->handle($payload);
         }
 
         TransactionRecorder::markProcessed($payload);
@@ -98,9 +101,11 @@ final readonly class WebhookController
         if (is_string($handler) && $handler !== '') {
             $instance = $this->container->make($handler);
 
-            if ($instance instanceof WlcmSubscriptionWebhookHandler) {
-                $instance->handle($payload);
+            if (! $instance instanceof WlcmSubscriptionWebhookHandler) {
+                throw MissingConfigurationException::forKey('wlcm.webhook.subscription_handler');
             }
+
+            $instance->handle($payload);
         }
 
         TransactionRecorder::markSubscriptionProcessed($payload);

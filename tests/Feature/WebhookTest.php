@@ -12,6 +12,7 @@ use Uzbek\Wlcm\Events\SubscriptionCancelled;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\SubscriptionChargeFailed;
 use Uzbek\Wlcm\Events\WebhookReceived;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Tests\TestCase;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
@@ -84,6 +85,31 @@ final class WebhookTest extends TestCase
     public function test_route_registered(): void
     {
         $this->assertTrue(app('router')->has('wlcm.webhook'));
+    }
+
+    public function test_unknown_connection_is_not_routed(): void
+    {
+        $this->postJson('/wlcm/webhook/nope', $this->payload())->assertNotFound();
+    }
+
+    public function test_known_connection_segment_still_verifies(): void
+    {
+        Event::fake();
+
+        $this->postJson('/wlcm/webhook/main', $this->payload('2'))->assertOk();
+
+        Event::assertDispatched(PaymentSucceeded::class, fn (PaymentSucceeded $e) => $e->payload->connection === 'main');
+    }
+
+    public function test_handler_not_implementing_contract_throws(): void
+    {
+        config()->set('wlcm.webhook.handler', \stdClass::class);
+
+        $this->withoutExceptionHandling();
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('wlcm.webhook.handler');
+
+        $this->postJson('/wlcm/webhook', $this->payload());
     }
 
     public function test_int_typed_payment_payload_end_to_end(): void
@@ -178,6 +204,17 @@ final class WebhookTest extends TestCase
 
         $this->assertNotNull($handler->received);
         $this->assertSame('subscription.activated', $handler->received->event);
+    }
+
+    public function test_subscription_handler_not_implementing_contract_throws(): void
+    {
+        config()->set('wlcm.webhook.subscription_handler', \stdClass::class);
+
+        $this->withoutExceptionHandling();
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('wlcm.webhook.subscription_handler');
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionPayload());
     }
 
     public function test_real_captured_delivery_end_to_end(): void
