@@ -119,7 +119,7 @@ final class WebhooksResourceTest extends TestCase
 
     public function test_events_history_unwraps_pagination(): void
     {
-        // Live shape: paginated envelope; rows include delivery status and retry data.
+        // Live shape: paginated envelope; rows include delivery status + retry data.
         Http::fake(['api.wlcm.test/*' => Http::response([
             'count' => 1, 'next' => null, 'previous' => null,
             'results' => [
@@ -183,7 +183,7 @@ final class WebhooksResourceTest extends TestCase
 
     public function test_webhook_info_full_shape(): void
     {
-        // Live object shape after PATCH: includes events list and delivery telemetry.
+        // Live object shape after PATCH: events list + delivery telemetry.
         Http::fake(['api.wlcm.test/*' => Http::response([
             'id' => 7, 'url' => 'https://app.test/hook', 'secret_key' => 'whsec_x',
             'events' => ['payment.success'], 'is_active' => true,
@@ -214,7 +214,7 @@ final class WebhooksResourceTest extends TestCase
         $this->assertSame('https://app.test/hook', $hooks[0]->url);
     }
 
-    /** GREEN-lock: WebhookInfo already survives a bare {}. */
+    /** GREEN-lock: WebhookInfo already survives bare {}. */
     public function test_webhook_info_tolerates_empty_server_shape(): void
     {
         $hook = WebhookInfo::fromArray([]);

@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 
 /**
- * Call once per test: the first call's stubs, including the catch-all,
- * take precedence over any later Http::fake()/Wlcm::fake() calls.
+ * Call once per test: first call's stubs, including catch-all, take
+ * precedence over any later Http::fake()/Wlcm::fake() call.
  */
 final class WlcmFake
 {
@@ -54,8 +54,8 @@ final class WlcmFake
         ]);
     }
 
-    // Fresh installs have no WLCM env vars; without these the client dies on
-    // MissingConfigurationException before a stub is ever consulted.
+    // Fresh installs have no WLCM env vars; without these client dies on
+    // MissingConfigurationException before any stub is consulted.
     private function fillMissingCredentials(): void
     {
         $default = Config::get('wlcm.default', 'main');

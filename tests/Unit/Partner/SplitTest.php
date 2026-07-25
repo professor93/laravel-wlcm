@@ -176,7 +176,7 @@ final class SplitTest extends TestCase
         Http::assertSent(fn (Request $req): bool => $req->body() === '{"recipients":[{"recipient_id":31,"recipient_type":"partner","split_type":"fixed","amount":1000},{"recipient_id":10,"recipient_type":"brand","split_type":"percent","amount":30}]}');
     }
 
-    /** GREEN-lock: normalizing split_type must never add the key when the caller omitted it. */
+    /** GREEN-lock: normalizing split_type must never add key the caller omitted. */
     public function test_split_type_key_stays_absent_when_not_sent(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(self::RESPONSE, 201)]);

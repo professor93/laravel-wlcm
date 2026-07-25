@@ -9,7 +9,7 @@ use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 /**
- * Claim-then-dispatch: a claim stays unprocessed until markProcessed lands, so a crash
+ * Claim-then-dispatch: claim stays unprocessed until markProcessed lands, so crash
  * mid-dispatch must re-deliver as Fresh.
  */
 interface TransactionStore

@@ -16,7 +16,7 @@ use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Storage\Masker;
 
-// Maps Partner API responses (FastAPI error shapes) onto the package exception tree.
+// Maps Partner API responses (FastAPI error shapes) onto package exception tree.
 final class ErrorMapper
 {
     /** @return array<string, mixed> */
@@ -26,16 +26,16 @@ final class ErrorMapper
             $json = $response->json();
 
             if (! is_array($json)) {
-                // 200 with garbage body (proxy page, truncated JSON) must never read as "not paid".
+                // Garbage 200 body (proxy page, truncated JSON) must not read as unpaid.
                 throw new ServerException(
                     "WLCM returned HTTP {$response->status()} with a non-JSON body",
                     connectionName: $connectionName,
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    // Scrub before the final cut: a truncated PAN's check digit is Luhn-recoverable.
-                    // The pre-cut bounds the scan on huge bodies without ever reaching the kept
-                    // bytes: a scrub collapses 20 chars to 14 at worst, so the 500 that survive
+                    // Scrub before cut: truncated PAN check digit Luhn-recoverable.
+                    // Pre-cut bounds scan on huge bodies, never reaching kept bytes:
+                    // scrub collapses 20 chars to 14 at worst, so the 500 that survive
                     // come from no further in than byte 734.
                     responseBody: mb_strcut(Masker::scrubPans(mb_strcut($response->body(), 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
                 );
@@ -64,7 +64,7 @@ final class ErrorMapper
             }
 
             $code = $body['code'] ?? null;
-            // Machine codes live in `code`, or arrive as a bare snake_case detail string.
+            // Machine codes live in `code`, or arrive as bare snake_case detail string.
             $errorCode = match (true) {
                 is_string($code) && $code !== '' => $code,
                 is_string($detail) && preg_match('/^[a-z0-9_]+$/', $detail) === 1 => $detail,
@@ -83,13 +83,12 @@ final class ErrorMapper
         /** @var array<string, list<string>> $errors */
         $errors = Masker::scrubProse($errors);
 
-        // Derivation above reads the RAW body on purpose. Every string and integer surface that
-        // leaves on the exception is PAN-scrubbed: message/errors keep server prose minus PANs, and
-        // responseBody is additionally key-masked — FastAPI echoes the submitted payload there.
+        // Derivation above reads RAW body on purpose. Every string/int surface leaving on the
+        // exception is PAN-scrubbed: message/errors keep server prose minus PANs; responseBody
+        // additionally key-masked — FastAPI echoes submitted payload there.
         $exposedBody = match (true) {
             is_array($body) => Masker::scrubProse(Masker::mask(self::maskDetailInputs($body))),
-            // Cut on a codepoint boundary: a half character makes json_encode of the whole
-            // exception context fail.
+            // Cut on codepoint boundary: half character fails json_encode of whole exception context.
             is_string($body) => mb_strcut(Masker::scrubPans(mb_strcut($body, 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
             is_int($body) => ($s = Masker::scrubPans((string) $body)) === (string) $body ? $body : $s,
             default => $body,
@@ -97,9 +96,8 @@ final class ErrorMapper
 
         $args = [$message, $connectionName, $method, $url, $status, $exposedBody];
 
-        // 4xx is a determinate business answer. 5xx/3xx leave the outcome unknown and 401/403 were
-        // never business-evaluated, so a body code there must not be relabelled as a decline;
-        // it still rides along via errorCode.
+        // 4xx = determinate business answer. 5xx/3xx leave outcome unknown, 401/403 never
+        // business-evaluated: body code there must not be relabelled a decline. Still rides errorCode.
         $determinate = $status >= 400 && $status < 500;
 
         throw match (true) {
@@ -118,8 +116,8 @@ final class ErrorMapper
         };
     }
 
-    // Pydantic sends `input` as the bare failing value for field-level errors, invisible to a
-    // key-based masker. Re-key under the loc tail so Masker's own rules decide.
+    // Pydantic sends `input` as bare failing value for field-level errors, invisible to
+    // key-based masker. Re-key under loc tail so Masker's own rules decide.
     /**
      * @param  array<array-key, mixed>  $body
      * @return array<array-key, mixed>
@@ -146,7 +144,7 @@ final class ErrorMapper
                 continue;
             }
 
-            // A DROP key masks to nothing at all, so an absent key means "withhold".
+            // DROP key masks to nothing at all, so absent key means "withhold".
             $masked = Masker::mask([$field => $item['input']]);
             $item['input'] = array_key_exists($field, $masked) ? $masked[$field] : '***';
             $detail[$i] = $item;
@@ -158,8 +156,8 @@ final class ErrorMapper
     }
 
     /**
-     * FastAPI 422 detail: list of {type, loc, msg, input, ctx}. Message keeps the full
-     * loc path ("body.return_url: Field required"); errors() keys drop the leading "body".
+     * FastAPI 422 detail: list of {type, loc, msg, input, ctx}. Message keeps full loc
+     * path ("body.return_url: Field required"); errors() keys drop leading "body".
      *
      * @param  array<mixed>  $detail
      * @return array{0: string|null, 1: array<string, list<string>>}

@@ -6,7 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 final class Masker
 {
-    // Keys compared separator-less and lowercased: "card_number"/"cardNumber" both hit.
+    // Keys matched separator-less, lowercased: "card_number"/"cardNumber" both hit.
     private const array PAN_KEYS = ['cardnumber', 'number', 'pan', 'hpan'];
 
     private const array STAR_KEYS = ['otp', 'password', 'expiredate'];
@@ -33,7 +33,7 @@ final class Masker
                 continue;
             }
 
-            // Before recursion: PAN hidden in a nested value must never be emitted.
+            // Before recursion: PAN hidden in nested value must never be emitted.
             if ($normalized !== null && in_array($normalized, self::PAN_KEYS, true)) {
                 if (! is_scalar($value)) {
                     $out[$key] = '***';
@@ -87,7 +87,7 @@ final class Masker
 
     public static function scrubPans(string $text): string
     {
-        // A run failing Luhn is left whole, never hunted for a passing substring: false-positive control beats exhaustiveness.
+        // Luhn-failing run left whole, never hunted for passing substring: false-positive control beats exhaustiveness.
         $scrubbed = preg_replace_callback(
             '/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/',
             static function (array $match): string {

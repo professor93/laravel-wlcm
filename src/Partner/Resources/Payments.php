@@ -32,8 +32,8 @@ final readonly class Payments
     }
 
     /**
-     * Reason is an integer code; the server 422s on strings.
-     * Raw passthrough: the cancel ack body is undocumented, nothing stable to type.
+     * Reason is integer code; server 422s on strings.
+     * Raw passthrough: cancel ack body undocumented, nothing stable to type.
      *
      * @return array<string, mixed>
      */
@@ -48,9 +48,9 @@ final readonly class Payments
     }
 
     /**
-     * Paylov WO confirm. UNVERIFIED: the camelCase body is sandbox-console-derived,
-     * never confirmed against a real payment.
-     * Raw passthrough: the response was never observed, so there is nothing to type.
+     * Paylov WO confirm. UNVERIFIED: camelCase body sandbox-console-derived, never
+     * confirmed against real payment.
+     * Raw passthrough: response never observed, nothing to type.
      *
      * @return array<string, mixed>
      */
@@ -64,16 +64,15 @@ final readonly class Payments
 
     /**
      * Fixed-split amounts are int tiyin like everything else in this package.
-     * The wire unit is governed by partner.split_amount_unit: 'sum' (default)
-     * converts via Tiyin::toSum; 'tiyin' passes raw. Percent values are never
-     * touched. Unit is sandbox-proven SUM (3 live signals: server error
-     * messages compare fixed totals to the payment SUM value); docs claim
-     * tiyin. SDK sends SUM by default, tiyin retained; pending final WLCM
-     * confirmation 2026-07-25.
+     * Wire unit governed by partner.split_amount_unit: 'sum' (default) converts
+     * via Tiyin::toSum, 'tiyin' passes raw. Percent values never touched. Unit
+     * sandbox-proven SUM (3 live signals: server error messages compare fixed
+     * totals to payment SUM value); docs claim tiyin. SDK sends SUM by default,
+     * tiyin retained; pending final WLCM confirmation 2026-07-25.
      *
-     * Server-enforced rules (not validated client-side): fixed totals must
-     * EQUAL the payment amount exactly; duplicate recipient 422; unknown
-     * recipient 404; validation order duplicate -> total -> existence.
+     * Server-enforced, not validated client-side: fixed totals must EQUAL payment
+     * amount exactly; duplicate recipient 422; unknown recipient 404; validation
+     * order duplicate -> total -> existence.
      *
      * @param  list<array<string, mixed>>  $recipients
      */
@@ -111,7 +110,7 @@ final readonly class Payments
             $amount = $recipient['amount'] ?? null;
 
             if (! is_int($amount)) {
-                // Non-int here would ship the wrong unit silently — the 100x mistake.
+                // Non-int would ship wrong unit silently — the 100x mistake.
                 throw new InvalidAmountException('Fixed split amount must be int tiyin, got '.get_debug_type($amount));
             }
 
@@ -120,12 +119,12 @@ final readonly class Payments
             }
 
             if ($convert) {
-                // UNIT: sandbox-proven SUM (server compares fixed totals to the payment SUM
-                // value, e.g. "Fixed split total 5000 must equal payment amount 10000.00").
-                // Pending WLCM confirmation 2026-07-25. If they say tiyin, swap to the
-                // commented line below or set partner.split_amount_unit to 'tiyin'.
+                // UNIT: sandbox-proven SUM (server compares fixed totals to payment SUM value,
+                // e.g. "Fixed split total 5000 must equal payment amount 10000.00").
+                // Pending WLCM confirmation 2026-07-25. If tiyin, swap to commented line
+                // below or set partner.split_amount_unit to 'tiyin'.
                 $recipient['amount'] = Tiyin::toSum($amount); // active: SUM
-                // $recipient['amount'] = $amount;            // alt: tiyin passthrough (docs claim tiyin) — uncomment if WLCM confirms tiyin
+                // $recipient['amount'] = $amount;            // alt: tiyin passthrough (docs claim tiyin) — uncomment if WLCM confirms
             }
 
             return $recipient;

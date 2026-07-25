@@ -48,7 +48,7 @@ final class DatabaseLogStore implements LogStore
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            report($e); // Audit write must never break a payment call.
+            report($e); // Audit write must never break payment call.
         }
     }
 
@@ -75,7 +75,7 @@ final class DatabaseLogStore implements LogStore
                 'created_at' => now(),
             ]);
         } catch (Throwable $e) {
-            report($e); // Audit write must never break a payment call.
+            report($e); // Audit write must never break payment call.
         }
     }
 

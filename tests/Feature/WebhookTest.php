@@ -309,7 +309,7 @@ final class WebhookTest extends TestCase
 
     public function test_real_captured_delivery_end_to_end(): void
     {
-        // Verbatim tunnel capture: body-only signature, no webhook headers at all.
+        // Verbatim tunnel capture: body-only signature, no webhook headers.
         config()->set('wlcm.connections.main.partner.webhook_secret', 'whsec_probe_2026');
         Event::fake();
 

@@ -49,7 +49,6 @@ final readonly class SubscriptionWebhookPayload
         return "{$this->externalOrderId}:{$this->event}:{$this->timestamp}";
     }
 
-    // Subscription webhook amount is a decimal SUM string.
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString($this->amount);

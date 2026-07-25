@@ -47,12 +47,12 @@ final class TransactionRecorder implements TransactionStore
                 'meta' => Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid]),
             ]);
         } catch (Throwable $e) {
-            report($e); // Audit write must never break a payment call.
+            report($e); // Audit write must never break payment call.
         }
     }
 
-    // Claim-then-dispatch: Fresh rows keep processed_at null until the controller
-    // finishes events+handler, so a crash mid-dispatch reprocesses on redelivery.
+    // Claim-then-dispatch: Fresh rows keep processed_at null until controller
+    // finishes events+handler, so crash mid-dispatch reprocesses on redelivery.
     public function applyWebhook(WebhookPayload $payload): WebhookOutcome
     {
         if (! $this->enabled()) {
@@ -70,7 +70,7 @@ final class TransactionRecorder implements TransactionStore
                 return $row->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
             }
 
-            // Terminal rows accept only a post-success cancel (-2); everything else is a stale replay.
+            // Terminal rows accept only post-success cancel (-2); rest is stale replay.
             $terminal = [PaymentState::Success->value, PaymentState::Cancelled->value, PaymentState::CancelledDuringInit->value];
 
             if ($row !== null && in_array($row->state, $terminal, true) && $payload->state !== PaymentState::Cancelled->value) {

@@ -157,7 +157,7 @@ final class PartnerClient
             ];
         }
 
-        // A bare-scalar body reaches custom log stores untouched, so it is scrubbed like any prose.
+        // Bare scalar reaches custom log stores untouched, so scrub here. String/int only; float/bool pass raw.
         $loggedBody = match (true) {
             is_array($json) => Masker::scrubProse(Masker::mask(ErrorMapper::maskDetailInputs($json))),
             is_string($json) => Masker::scrubPans($json),

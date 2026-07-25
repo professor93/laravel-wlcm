@@ -237,7 +237,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_crash_recovery_refires_events(): void
     {
-        // Row claimed but processed_at never set (handler crashed) -> same delivery re-fires.
+        // Row claimed, processed_at never set (handler crashed) -> same delivery re-fires.
         $data = $this->webhookData('2');
         Event::fake();
         $this->postJson('/wlcm/webhook', $data)->assertOk();
@@ -452,7 +452,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_log_store_is_swappable(): void
     {
-        // Swap BEFORE the first Wlcm:: call — the manager caches the connection.
+        // Swap BEFORE first Wlcm:: call — manager caches connection.
         $spy = new class implements LogStore
         {
             /** @var list<string> */
@@ -675,8 +675,8 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('860012******9012', $detail[0]['input']);
     }
 
-    // The bundled stores drop a non-array response body, but the interface hands it to custom
-    // stores verbatim, so it has to leave the client already scrubbed.
+    // Bundled stores drop non-array response body, but interface hands it to custom
+    // stores verbatim, so it must leave client already scrubbed.
     public function test_non_array_bodies_are_scrubbed_on_the_log_surface(): void
     {
         $spy = new class implements LogStore
@@ -715,7 +715,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
     {
-        // external_id sits outside the signature base, so prose there is unauthenticated.
+        // external_id sits outside signature base, so prose there is unauthenticated.
         $data = $this->webhookData();
         $data['external_id'] = 'ORD-1 via card 8600123456789012';
 
@@ -724,7 +724,7 @@ final class StorageWiringTest extends TestCase
         $log = WlcmLog::sole();
         $this->assertIsArray($log->request_body);
         $this->assertSame('ORD-1 via card 860012***9012', $log->request_body['external_id']);
-        // Correlation keys are taken from the payload, not the log surface.
+        // Correlation keys taken from payload, not log surface.
         $this->assertSame('ORD-1 via card 8600123456789012', WlcmTransaction::sole()->external_id);
     }
 }

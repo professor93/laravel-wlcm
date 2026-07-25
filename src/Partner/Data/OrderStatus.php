@@ -38,7 +38,7 @@ final readonly class OrderStatus
     /** @param OrderStatusShape $data */
     public static function fromArray(array $data): self
     {
-        // Paid responses drop the top-level state; status_explanation.state (string) still carries it.
+        // Paid responses drop top-level state; status_explanation.state (string) still carries it.
         $stateRaw = $data['state'] ?? null;
 
         if ($stateRaw === null) {
@@ -75,7 +75,7 @@ final readonly class OrderStatus
         return $this->state === null ? null : PaymentState::tryFrom($this->state);
     }
 
-    // Server sends SUM as a JSON float; pin to two decimals as a string, then digit math.
+    // Server sends SUM as JSON float; pin to 2 decimals as string, then digit math.
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString(number_format($this->amount, 2, '.', ''));

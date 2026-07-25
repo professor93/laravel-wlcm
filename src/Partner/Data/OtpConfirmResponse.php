@@ -25,7 +25,7 @@ final readonly class OtpConfirmResponse
         );
     }
 
-    // Exact server prose; breaks silently if WLCM rewords. No machine code exists for this case.
+    // Exact server prose; breaks silently if WLCM rewords. No machine code for this case.
     public function alreadyPaid(): bool
     {
         return $this->message === 'Already paid';

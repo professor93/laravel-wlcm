@@ -46,7 +46,7 @@ final class WlcmTransaction extends Model
         }
 
         if ($abandonedBefore instanceof Carbon) {
-            // A claimed row (payment_id or delivery_key set) is a crashed dispatch, never reapable.
+            // Claimed row (payment_id/delivery_key set) = crashed dispatch. Never reap.
             $query->orWhere(fn (Builder $window) => $window
                 ->whereNull('processed_at')
                 ->whereNull('payment_id')

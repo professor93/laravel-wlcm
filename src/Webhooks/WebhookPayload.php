@@ -67,7 +67,6 @@ final readonly class WebhookPayload
         return $this->state === PaymentState::Cancelled->value;
     }
 
-    // Webhook amount arrives as decimal SUM string; int tiyin without float drift.
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString($this->amount);

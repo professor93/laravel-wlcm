@@ -16,7 +16,7 @@ use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Tests\TestCase;
 
-// Fixtures are verbatim sandbox (apidev.wlcm.uz) error bodies.
+// Fixtures verbatim sandbox (apidev.wlcm.uz) error bodies.
 final class ErrorMappingTest extends TestCase
 {
     public function test_401_invalid_api_key_carries_error_code(): void
@@ -117,7 +117,7 @@ final class ErrorMappingTest extends TestCase
                 'amount' => ['Input should be greater than 0'],
             ], $e->errors());
 
-            // Masking a bare `input` must not touch values of non-sensitive fields.
+            // Masking bare `input` must not touch values of non-sensitive fields.
             $body = $e->responseBody;
             $this->assertIsArray($body);
             $detail = $body['detail'];
@@ -374,8 +374,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Constructed, not verbatim: pairs a field-level loc with the parent-dict `input` Pydantic
-    // sends for `missing`, so one fixture covers the keyed-recursion arm.
+    // Constructed, not verbatim: pairs field-level loc with parent-dict `input` Pydantic
+    // sends for `missing`, so one fixture covers keyed-recursion arm.
     public function test_thrown_exception_body_is_masked(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -408,7 +408,7 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // A field-level rejection echoes the bare failing value under `input`, where no key names it.
+    // Field-level rejection echoes bare failing value under `input`, where no key names it.
     public function test_bare_pan_echo_in_detail_input_is_masked(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -476,8 +476,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Byte 500 of this page lands inside a two-byte codepoint; a blind cut leaves the body
-    // unencodable, and json_encode of the exception context then fails wholesale.
+    // Byte 500 of this page lands inside two-byte codepoint; blind cut leaves body
+    // unencodable, then json_encode of exception context fails wholesale.
     public function test_thrown_exception_string_body_stays_valid_utf8(): void
     {
         $page = '<html><h1>502 Bad Gateway</h1><p>'
@@ -683,8 +683,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Scrubbing shortens the body, so a PAN sitting past byte 500 in the raw page still lands
-    // inside the 500 kept bytes. Whatever window the scan reads has to cover it whole.
+    // Scrubbing shortens body, so PAN past byte 500 in raw page still lands inside
+    // the 500 kept bytes. Scan window must cover it whole.
     public function test_pan_pulled_under_the_cut_by_earlier_scrubs_leaves_no_raw_digit_run(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(

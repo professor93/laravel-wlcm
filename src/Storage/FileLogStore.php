@@ -36,7 +36,7 @@ final class FileLogStore implements LogStore
             'method' => $method,
             'path' => parse_url($url, PHP_URL_PATH) ?: $url,
             'request_body' => $requestBody,
-            // Producers mask arrays only; a scalar body reaches here raw, so it is dropped.
+            // Producers key-mask arrays only; string/int scalars arrive PAN-scrubbed but unmasked, so drop.
             'response_body' => is_array($responseBody) ? $responseBody : null,
             'status_code' => $status,
             'duration_ms' => $durationMs,

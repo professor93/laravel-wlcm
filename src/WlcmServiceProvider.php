@@ -22,7 +22,7 @@ final class WlcmServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/wlcm.php', 'wlcm');
 
         $this->app->singleton(LogStore::class, function (Application $app): LogStore {
-            // Singleton: the driver is fixed at first resolution, the on/off toggle is not.
+            // Singleton: driver fixed at first resolve; on/off toggle stays live.
             return match ($app->make(Repository::class)->get('wlcm.storage.logs', false)) {
                 'file' => $app->make(FileLogStore::class),
                 'log' => $app->make(LogChannelLogStore::class),

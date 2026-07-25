@@ -6,7 +6,7 @@ namespace Uzbek\Wlcm\Partner\Data;
 
 use Uzbek\Wlcm\Enums\WlcmErrorCode;
 
-// Charge returns HTTP 200 for both outcomes; a failed charge is data, not an exception.
+// Charge returns HTTP 200 both outcomes; failed charge is data, not exception.
 /**
  * @phpstan-type SubscriptionChargeResultShape array{status?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, message?: WlcmJsonScalar}
  */
@@ -35,7 +35,7 @@ final readonly class SubscriptionChargeResult
         );
     }
 
-    // Guard every charge with this: no exception does NOT mean charged.
+    // Guard every charge: no exception does NOT mean charged.
     public function succeeded(): bool
     {
         return $this->status === 'success';

@@ -204,7 +204,7 @@ final class SubscriptionsTest extends TestCase
         $this->assertNull($result->errorCodeEnum());
     }
 
-    // A plausible-looking id from a bad cast is worse than none: merchants refund against it.
+    // Plausible-looking id from bad cast worse than none: merchants refund against it.
     public function test_charge_result_rejects_array_typed_payment_id(): void
     {
         $result = SubscriptionChargeResult::fromArray(['status' => 'success', 'payment_id' => ['9']]);

@@ -90,9 +90,9 @@ final class PartnerClientTest extends TestCase
 
     public function test_status_code_mapping(): void
     {
-        // Http::fake() accumulates stub callbacks and the first match wins, so refaking
-        // per-iteration on the same URL pattern would keep serving the first status.
-        // Register once and drive the response through a captured, mutable status.
+        // Http::fake() accumulates stub callbacks, first match wins: refaking per-iteration
+        // on same URL pattern keeps serving first status. Register once, drive response
+        // through captured mutable status.
         $status = 0;
         Http::fake(function () use (&$status) {
             return Http::response(['detail' => 'err'], $status);

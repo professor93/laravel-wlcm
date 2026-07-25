@@ -25,7 +25,7 @@ final readonly class VerifyWebhookSignature
     /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
-        // Subscription events carry an `event` field; payment webhooks never do.
+        // Subscription events carry `event` field; payment webhooks never do.
         $isSubscription = $request->input('event') !== null;
 
         foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
@@ -38,7 +38,7 @@ final readonly class VerifyWebhookSignature
 
         $signature = $request->input('signature');
 
-        // Some deliveries carry the signature only in the X-Webhook-Signature header.
+        // Some deliveries carry signature only in X-Webhook-Signature header.
         if (! is_string($signature) || $signature === '') {
             $signature = $request->header('X-Webhook-Signature');
         }

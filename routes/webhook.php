@@ -8,7 +8,7 @@ use Uzbek\Wlcm\Webhooks\WebhookController;
 
 $path = config('wlcm.webhook.path');
 
-// Array config kills BootProviders on the string cast, and a slash-or-whitespace-only one registers a root catch-all.
+// Array config kills BootProviders on string cast; slash-or-whitespace-only registers root catch-all.
 $path = is_string($path) ? trim($path, " \t\n\r\0\x0B/") : '';
 $path = $path !== '' ? $path : 'wlcm/webhook';
 
@@ -19,7 +19,7 @@ $route = Route::post(
 
 $connections = array_keys((array) config('wlcm.connections', []));
 
-// An empty whereIn compiles to an empty requirement, which breaks routing app-wide.
+// Empty whereIn compiles to empty requirement, breaking routing app-wide.
 if ($connections !== []) {
     $route->whereIn('connection', array_map(
         static fn (string|int $connection): string => preg_quote((string) $connection, '/'),

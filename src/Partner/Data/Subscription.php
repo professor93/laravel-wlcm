@@ -63,7 +63,6 @@ final readonly class Subscription
         );
     }
 
-    // Server reports subscription amount as a decimal SUM string ("5000.00").
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString($this->amount);

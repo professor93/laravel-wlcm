@@ -220,7 +220,7 @@ final class VerifySignatureTest extends TestCase
     public function test_real_captured_delivery_verifies(): void
     {
         // Verbatim tunnel capture (order 414 / payment 172): JSON ints, signature
-        // in the body only — real deliveries send no X-Webhook-Signature header.
+        // in body only — real deliveries send no X-Webhook-Signature header.
         config()->set('wlcm.connections.main.partner.webhook_secret', 'whsec_probe_2026');
         $middleware = $this->app->make(VerifyWebhookSignature::class);
 
