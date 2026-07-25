@@ -274,7 +274,7 @@ final class StorageWiringTest extends TestCase
         Event::assertDispatchedTimes(WebhookReceived::class, 1);
     }
 
-    public function test_real_subscription_delivery_leaves_a_reaper_exempt_claim_row(): void
+    public function test_real_subscription_delivery_leaves_a_claim_row_shaped_for_the_reaper_exemption(): void
     {
         $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
 
@@ -298,7 +298,7 @@ final class StorageWiringTest extends TestCase
         Event::assertDispatchedTimes(WebhookReceived::class, 2);
     }
 
-    public function test_subscription_deliveries_only_ever_log_ok_or_duplicate(): void
+    public function test_subscription_deliveries_log_ok_or_duplicate_on_replay(): void
     {
         $data = $this->subscriptionWebhookData();
 

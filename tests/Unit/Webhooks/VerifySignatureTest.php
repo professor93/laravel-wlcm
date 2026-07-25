@@ -6,6 +6,8 @@ namespace Uzbek\Wlcm\Tests\Unit\Webhooks;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -120,6 +122,42 @@ final class VerifySignatureTest extends TestCase
             $this->assertSame(422, $e->getStatusCode());
             $this->assertSame('Missing field: state', $e->getMessage());
         }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function requiredPaymentFields(): array
+    {
+        return [
+            'order_id' => ['order_id'],
+            'payment_id' => ['payment_id'],
+            'amount' => ['amount'],
+            'state' => ['state'],
+            'timestamp' => ['timestamp'],
+        ];
+    }
+
+    #[DataProvider('requiredPaymentFields')]
+    public function test_absent_payment_field_422s_naming_it(string $field): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->validData();
+        unset($data[$field]);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail("expected 422 for {$field}");
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame("Missing field: {$field}", $e->getMessage());
+        }
+    }
+
+    public function test_required_payment_list_is_exactly_the_pinned_fields(): void
+    {
+        $required = (new ReflectionClass(VerifyWebhookSignature::class))->getConstant('REQUIRED_PAYMENT');
+
+        $this->assertIsArray($required);
+        $this->assertSame(array_keys(self::requiredPaymentFields()), array_values($required));
     }
 
     public function test_missing_secret_fails_closed(): void
@@ -395,6 +433,85 @@ final class VerifySignatureTest extends TestCase
             $this->fail('expected 422');
         } catch (HttpException $e) {
             $this->assertSame(422, $e->getStatusCode());
+        }
+    }
+
+    /** @return array<string, array{string}> */
+    public static function requiredSubscriptionFields(): array
+    {
+        return [
+            'external_order_id' => ['external_order_id'],
+            'event' => ['event'],
+            'timestamp' => ['timestamp'],
+        ];
+    }
+
+    #[DataProvider('requiredSubscriptionFields')]
+    public function test_unusable_subscription_field_422s_naming_it(string $field): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->subscriptionData();
+        $data[$field] = ['not-a-scalar'];
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail("expected 422 for {$field}");
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame("Missing field: {$field}", $e->getMessage());
+        }
+    }
+
+    public function test_required_subscription_list_is_exactly_the_pinned_fields(): void
+    {
+        $required = (new ReflectionClass(VerifyWebhookSignature::class))->getConstant('REQUIRED_SUBSCRIPTION');
+
+        $this->assertIsArray($required);
+        $this->assertSame(array_keys(self::requiredSubscriptionFields()), array_values($required));
+    }
+
+    public function test_absent_event_falls_back_to_the_payment_field_list(): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->subscriptionData();
+        unset($data['event']);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 422');
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame('Missing field: order_id', $e->getMessage());
+        }
+    }
+
+    public function test_absent_external_order_id_422s_naming_it(): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->subscriptionData();
+        unset($data['external_order_id']);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 422');
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame('Missing field: external_order_id', $e->getMessage());
+        }
+    }
+
+    public function test_absent_subscription_timestamp_422s_naming_it(): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->subscriptionData();
+        unset($data['timestamp']);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 422');
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame('Missing field: timestamp', $e->getMessage());
         }
     }
 

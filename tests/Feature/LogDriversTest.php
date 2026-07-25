@@ -203,7 +203,27 @@ final class LogDriversTest extends TestCase
 
     public function test_config_ships_both_stores_off(): void
     {
-        $config = require dirname(__DIR__, 2).'/config/wlcm.php';
+        $env = $_ENV['WLCM_LOGS'] ?? null;
+        $server = $_SERVER['WLCM_LOGS'] ?? null;
+        $putenv = getenv('WLCM_LOGS');
+        unset($_ENV['WLCM_LOGS'], $_SERVER['WLCM_LOGS']);
+        putenv('WLCM_LOGS');
+
+        try {
+            $config = require dirname(__DIR__, 2).'/config/wlcm.php';
+        } finally {
+            if ($env !== null) {
+                $_ENV['WLCM_LOGS'] = $env;
+            }
+
+            if ($server !== null) {
+                $_SERVER['WLCM_LOGS'] = $server;
+            }
+
+            if ($putenv !== false) {
+                putenv("WLCM_LOGS={$putenv}");
+            }
+        }
 
         $this->assertIsArray($config);
         $this->assertIsArray($config['storage']);
