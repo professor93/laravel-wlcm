@@ -74,6 +74,22 @@ final class StorageWiringTest extends TestCase
         $this->assertSame(201, $log->status_code);
     }
 
+    public function test_card_attach_logged_with_masked_pan(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'card_id' => 7, 'otp_sent_phone' => '**********67', 'reused' => false,
+        ], 200)]);
+
+        Wlcm::partner()->subscriptions()->attachCard(5, '9860991234569999', '3003', '998901234567');
+
+        $log = WlcmLog::sole();
+        $this->assertSame('out', $log->direction);
+        $this->assertSame('986099******9999', $log->request_body['card_number']);
+        $this->assertSame('***', $log->request_body['expire_date']);
+        $this->assertSame(200, $log->status_code);
+        $this->assertSame('ok', $log->result);
+    }
+
     public function test_checkout_recorded_as_transaction(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([

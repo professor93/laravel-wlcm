@@ -62,6 +62,17 @@ final class PartnerClient
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
+    public function postUnsigned(string $path, array $payload = []): array
+    {
+        $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        return $this->send('POST', $this->url($path), $body, signed: false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function patch(string $path, array $payload = []): array
     {
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -95,17 +106,19 @@ final class PartnerClient
     }
 
     /** @return array<string, mixed> */
-    private function send(string $method, string $url, ?string $body): array
+    private function send(string $method, string $url, ?string $body, bool $signed = true): array
     {
-        $timestamp = (string) now()->getTimestampMs();
-        $signature = $this->signer()->sign($method, $url, $timestamp, $body ?? '');
+        $request = $this->pendingRequest();
 
-        $request = $this->pendingRequest()
-            ->withHeaders([
+        if ($signed) {
+            $timestamp = (string) now()->getTimestampMs();
+
+            $request = $request->withHeaders([
                 'X-API-Key' => (string) $this->config['api_key'],
                 'X-Timestamp' => $timestamp,
-                'X-Signature' => $signature,
+                'X-Signature' => $this->signer()->sign($method, $url, $timestamp, $body ?? ''),
             ]);
+        }
 
         $started = hrtime(true);
 

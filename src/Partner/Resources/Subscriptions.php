@@ -4,13 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Resources;
 
-use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
-use Illuminate\Support\Facades\Http;
-use Uzbek\Wlcm\Exceptions\ConnectionException;
 use Uzbek\Wlcm\Partner\Data\Subscription;
 use Uzbek\Wlcm\Partner\Data\SubscriptionCardAttached;
 use Uzbek\Wlcm\Partner\Data\SubscriptionChargeResult;
-use Uzbek\Wlcm\Partner\ErrorMapper;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -79,7 +75,7 @@ final readonly class Subscriptions
             'phone_number' => $phoneNumber,
         ], fn (mixed $v): bool => $v !== null);
 
-        $result = $this->userPost("/subscriptions/{$subscriptionId}/cards", $payload);
+        $result = $this->client->postUnsigned("/subscriptions/{$subscriptionId}/cards", $payload);
         /** @var SubscriptionCardAttachedShape $result */
 
         return SubscriptionCardAttached::fromArray($result);
@@ -93,33 +89,12 @@ final readonly class Subscriptions
             'otp' => $otp,
         ], fn (mixed $v): bool => $v !== null);
 
-        return $this->userPost("/subscriptions/{$subscriptionId}/cards/confirm", $payload);
+        return $this->client->postUnsigned("/subscriptions/{$subscriptionId}/cards/confirm", $payload);
     }
 
     /** @return array<string, mixed> */
     public function activate(int $subscriptionId): array
     {
-        return $this->userPost("/subscriptions/{$subscriptionId}/activate", []);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function userPost(string $path, array $payload): array
-    {
-        $url = $this->client->baseUrl().'/'.ltrim($path, '/');
-        $http = $this->client->httpConfig();
-
-        try {
-            $response = Http::timeout((int) ($http['timeout'] ?? 15))
-                ->connectTimeout((int) ($http['connect_timeout'] ?? 5))
-                ->acceptJson()
-                ->post($url, $payload);
-        } catch (HttpConnectionException $e) {
-            throw new ConnectionException($e->getMessage(), $this->client->connectionName, 'POST', $url, previous: $e);
-        }
-
-        return ErrorMapper::handle($response, $this->client->connectionName, 'POST', $url);
+        return $this->client->postUnsigned("/subscriptions/{$subscriptionId}/activate");
     }
 }
