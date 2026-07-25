@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Tests\Unit\Partner;
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
@@ -113,6 +114,41 @@ final class SubscriptionsTest extends TestCase
         $this->assertFalse($result->succeeded());
         $this->assertTrue($result->isFailed());
         $this->assertSame('insufficient_funds', $result->message);
+    }
+
+    public function test_charge_failed_exposes_error_code_enum(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'failed', 'message' => 'insufficient_funds',
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertSame(WlcmErrorCode::InsufficientFunds, $result->errorCodeEnum());
+    }
+
+    public function test_charge_failed_human_message_has_no_error_code_enum(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'failed', 'message' => 'Not enough money on the card',
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertTrue($result->isFailed());
+        $this->assertNull($result->errorCodeEnum());
+    }
+
+    public function test_charge_success_has_no_error_code_enum(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'success', 'payment_id' => 98,
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertNull($result->message);
+        $this->assertNull($result->errorCodeEnum());
     }
 
     public function test_cancel_returns_full_subscription(): void

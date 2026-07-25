@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+use Uzbek\Wlcm\Enums\WlcmErrorCode;
+
 // Charge returns HTTP 200 for both outcomes; a failed charge is data, not an exception.
 final readonly class SubscriptionChargeResult
 {
@@ -35,5 +37,10 @@ final readonly class SubscriptionChargeResult
     public function isFailed(): bool
     {
         return $this->status === 'failed';
+    }
+
+    public function errorCodeEnum(): ?WlcmErrorCode
+    {
+        return $this->message === null ? null : WlcmErrorCode::tryFrom($this->message);
     }
 }
