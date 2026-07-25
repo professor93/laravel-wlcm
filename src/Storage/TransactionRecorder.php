@@ -4,21 +4,27 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Storage;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 use Uzbek\Wlcm\Enums\PaymentState;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Support\ConfigToggle;
+use Uzbek\Wlcm\Support\ConnectionConfig;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class TransactionRecorder implements TransactionStore
 {
+    public function __construct(private readonly Repository $config) {}
+
     private function enabled(): bool
     {
-        return ConfigToggle::enabled(config('wlcm.storage.transactions', false), 'wlcm.storage.transactions');
+        return ConfigToggle::enabled($this->config->get('wlcm.storage.transactions', false), 'wlcm.storage.transactions');
     }
 
     /** @param array<string, mixed> $requestPayload */
@@ -143,7 +149,8 @@ final class TransactionRecorder implements TransactionStore
                 'api' => 'subscription',
                 'external_id' => self::scrubbed($payload->externalOrderId),
                 'state_text' => self::scrubbed($payload->event),
-                // Key is a hash of the raw values: nothing leaks, and scrubbing could collide it.
+                // Keyed hmac over the raw values: unforgeable without the secret, and
+                // scrubbing the preimage would only collide keys without hiding anything.
                 'delivery_key' => $key,
             ]));
 
@@ -175,9 +182,34 @@ final class TransactionRecorder implements TransactionStore
             ->update(['processed_at' => now()]);
     }
 
+    // Keyed, not bare. Event and timestamp sit readable in the same delivery and the
+    // reference column keeps only 6+4 of a pan, so a bare hash hands the rest back to
+    // anyone who can read the row and count to a million.
     private function subscriptionKey(SubscriptionWebhookPayload $payload): string
     {
-        return hash('sha256', "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}");
+        return hash_hmac(
+            'sha256',
+            "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}",
+            $this->webhookSecret($payload->connection),
+        );
+    }
+
+    // Same lookup VerifyWebhookSignature already ran for this delivery, so on the webhook
+    // path the secret is guaranteed present. Missing = throw; a bare-hash fallback would
+    // quietly rebuild the oracle.
+    private function webhookSecret(?string $connection): string
+    {
+        $default = $this->config->get('wlcm.default', 'main');
+        /** @var WlcmJsonScalar $default */
+        $connection ??= (string) $default;
+        $block = ConnectionConfig::block($this->config, $connection);
+        $secret = $block === null ? null : Arr::get($block, 'partner.webhook_secret');
+
+        if (! is_string($secret) || $secret === '') {
+            throw MissingConfigurationException::forKey("wlcm.connections.{$connection}.partner.webhook_secret");
+        }
+
+        return $secret;
     }
 
     // Upstream echoes merchant free-text back into ids. wlcm_logs scrubs its own copy of

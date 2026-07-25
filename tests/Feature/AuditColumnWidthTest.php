@@ -12,7 +12,7 @@ use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 use Uzbek\Wlcm\Tests\TestCase;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
@@ -144,7 +144,7 @@ final class AuditColumnWidthTest extends TestCase
             'timestamp' => '1750000000',
         ], 'main');
 
-        $recorder = new TransactionRecorder;
+        $recorder = app(TransactionStore::class);
         $this->assertSame(WebhookOutcome::Fresh, $recorder->applyWebhook($payload));
 
         $row = WlcmTransaction::sole();
@@ -171,7 +171,7 @@ final class AuditColumnWidthTest extends TestCase
             'timestamp' => '1750000000',
         ], 'main');
 
-        $recorder = new TransactionRecorder;
+        $recorder = app(TransactionStore::class);
         $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($payload));
         $this->assertSame(str_pad('SUB-', 99, 'Q').'~', WlcmTransaction::sole()->external_id);
 

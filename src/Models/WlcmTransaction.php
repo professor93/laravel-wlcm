@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $order_id
  * @property string|null $payment_id
  * @property string|null $transaction_id
+ * @property string|null $delivery_key
  * @property int $amount_tiyin
  * @property int|null $state
  * @property Carbon|null $processed_at
