@@ -62,19 +62,15 @@ final class DatabaseLogStore implements LogStore
         $externalId = $payload['external_id'] ?? null;
         $orderId = $payload['order_id'] ?? null;
         $paymentId = $payload['payment_id'] ?? null;
-        /**
-         * @var WlcmJsonScalar $externalId
-         * @var WlcmJsonScalar $orderId
-         * @var WlcmJsonScalar $paymentId
-         */
+
         try {
             WlcmLog::create([
                 'connection' => $connection,
                 'direction' => 'webhook',
                 'request_body' => $payload,
-                'external_id' => $externalId === null ? null : (string) $externalId,
-                'order_id' => $orderId === null ? null : (string) $orderId,
-                'payment_id' => $paymentId === null ? null : (string) $paymentId,
+                'external_id' => is_scalar($externalId) ? (string) $externalId : null,
+                'order_id' => is_scalar($orderId) ? (string) $orderId : null,
+                'payment_id' => is_scalar($paymentId) ? (string) $paymentId : null,
                 'result' => $result,
                 'created_at' => now(),
             ]);

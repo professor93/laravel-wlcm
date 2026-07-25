@@ -343,6 +343,20 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('ok', $log->result);
     }
 
+    public function test_array_typed_webhook_id_still_lands_in_the_audit_trail(): void
+    {
+        $data = $this->webhookData();
+        $data['external_id'] = ['ORD-1', 'x'];
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $this->assertSame(['ok'], WlcmLog::query()->orderBy('id')->pluck('result')->all());
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $this->assertSame(['ok', 'duplicate'], WlcmLog::query()->orderBy('id')->pluck('result')->all());
+    }
+
     public function test_log_store_is_swappable(): void
     {
         $spy = new class implements LogStore
