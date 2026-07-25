@@ -34,16 +34,31 @@ final class WlcmTransaction extends Model
     /** @return Builder<WlcmTransaction> */
     public function prunable(): Builder
     {
-        $pruneDays = config('wlcm.storage.prune_days', 90);
+        $processedBefore = self::cutoff(config('wlcm.storage.prune_days', 90));
+        $abandonedBefore = self::cutoff(config('wlcm.storage.stale_days'));
 
-        if (! is_numeric($pruneDays)) {
-            return self::query()->whereRaw('1 = 0');
+        $query = self::query()->whereRaw('1 = 0');
+
+        if ($processedBefore instanceof Carbon) {
+            $query->orWhere(fn (Builder $window) => $window
+                ->whereNotNull('processed_at')
+                ->where('created_at', '<', $processedBefore));
         }
 
-        $days = max(1, (int) $pruneDays);
+        if ($abandonedBefore instanceof Carbon) {
+            // A claimed row (payment_id or delivery_key set) is a crashed dispatch, never reapable.
+            $query->orWhere(fn (Builder $window) => $window
+                ->whereNull('processed_at')
+                ->whereNull('payment_id')
+                ->whereNull('delivery_key')
+                ->where('created_at', '<', $abandonedBefore));
+        }
 
-        return self::query()
-            ->whereNotNull('processed_at')
-            ->where('created_at', '<', now()->subDays($days));
+        return $query;
+    }
+
+    private static function cutoff(mixed $days): ?Carbon
+    {
+        return is_numeric($days) ? now()->subDays(max(1, (int) $days)) : null;
     }
 }

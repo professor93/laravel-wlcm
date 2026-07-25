@@ -180,6 +180,7 @@ php artisan migrate
     'logs_path' => null,    // 'file' driver only; null = storage_path('logs/wlcm.jsonl')
     'transactions' => true, // wlcm_transactions: checkout/payment state, updated by webhooks
     'prune_days' => 90,
+    'stale_days' => null,   // reaps abandoned checkouts; null = keep forever
 ],
 ```
 
@@ -212,6 +213,8 @@ Schedule::command('model:prune', ['--model' => [
 ```
 
 `prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
+
+`stale_days` is a second, independent window over `wlcm_transactions` — off by default. It reaps only abandoned checkouts: rows no webhook ever claimed, so `processed_at`, `payment_id` and `delivery_key` are all null. A claimed row still holding `processed_at` null is a delivery that crashed mid-dispatch, and neither window reaps it at any setting — reaping one makes WLCM's next redelivery look fresh and re-runs your handlers. Reaping an abandoned checkout costs only the checkout-time linkage: a late webhook for it still dispatches, as a new row. The two windows disable and clamp separately (null or non-numeric off, numeric floors at 1 day); a prune run applies whichever are set.
 
 `prune_days` covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has.
 
