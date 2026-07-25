@@ -195,7 +195,7 @@ final class PartnerClient
         }
 
         /** @var array<string, mixed> $masked */
-        $masked = Masker::mask($decoded);
+        $masked = Masker::scrubProse(Masker::mask($decoded));
 
         return $masked;
     }

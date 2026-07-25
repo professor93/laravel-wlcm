@@ -713,6 +713,39 @@ final class StorageWiringTest extends TestCase
         );
     }
 
+    public function test_pan_prose_in_an_outbound_request_field_is_scrubbed_on_the_log_surface(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'order for card 4111111111111111',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertSame('order for card 411111***1111', $log->request_body['external_id']);
+        $this->assertStringNotContainsString(
+            '4111111111111111',
+            json_encode($log->getAttributes(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_luhn_failing_request_values_survive_the_scrub_beside_a_masked_pan_key(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 1], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, externalId: '1234567890123456', provider: 'card',
+            cardNumber: '9860991234569999', expireDate: '3003',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertSame('1234567890123456', $log->request_body['external_id']);
+        $this->assertSame('986099******9999', $log->request_body['card_number']);
+        $this->assertSame('***', $log->request_body['expire_date']);
+    }
+
     public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
     {
         // external_id sits outside signature base, so prose there is unauthenticated.
