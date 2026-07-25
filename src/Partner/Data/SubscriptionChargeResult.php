@@ -24,11 +24,12 @@ final readonly class SubscriptionChargeResult
     public static function fromArray(array $data): self
     {
         $status = $data['status'] ?? null;
+        $paymentId = $data['payment_id'] ?? null;
         $message = $data['message'] ?? null;
 
         return new self(
             status: is_scalar($status) ? (string) $status : '',
-            paymentId: isset($data['payment_id']) ? (int) $data['payment_id'] : null,
+            paymentId: is_numeric($paymentId) ? (int) $paymentId : null,
             message: is_scalar($message) ? (string) $message : null,
             raw: $data,
         );

@@ -11,6 +11,7 @@ use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\SubscriptionChargeResult;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class SubscriptionsTest extends TestCase
@@ -188,6 +189,37 @@ final class SubscriptionsTest extends TestCase
         $this->assertNull($result->message);
         $this->assertFalse($result->succeeded());
         $this->assertNull($result->errorCodeEnum());
+    }
+
+    // A plausible-looking id from a bad cast is worse than none: merchants refund against it.
+    public function test_charge_result_rejects_array_typed_payment_id(): void
+    {
+        $result = SubscriptionChargeResult::fromArray(['status' => 'success', 'payment_id' => ['9']]);
+
+        $this->assertNull($result->paymentId);
+        $this->assertSame(['9'], $result->raw['payment_id']);
+    }
+
+    public function test_charge_result_accepts_numeric_string_payment_id(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'success', 'payment_id' => '9',
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertSame(9, $result->paymentId);
+    }
+
+    public function test_charge_result_has_no_payment_id_when_absent(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'failed', 'message' => 'insufficient_funds',
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertNull($result->paymentId);
     }
 
     public function test_cancel_returns_full_subscription(): void
