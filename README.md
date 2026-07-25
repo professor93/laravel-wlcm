@@ -18,17 +18,11 @@ WLCM_API_SECRET=
 WLCM_WEBHOOK_SECRET=
 ```
 
-Multiple partners: entries under `wlcm.connections` in `config/wlcm.php`, then `Wlcm::connection('name')->partner()->...` where the examples below say `Wlcm::partner()->...`. `Wlcm::partner()` is shorthand for the `wlcm.default` connection.
+Multiple partners: entries under `wlcm.connections` in `config/wlcm.php`, then `Wlcm::connection('name')->partner()->...` where examples below say `Wlcm::partner()->...` — shorthand for the `wlcm.default` connection.
 
 ## Money
 
-All amounts `int` tiyin (1 sum = 100 tiyin) — params, responses, everything you pass. Package converts to sum where API wants sum (subscription create/charge, fixed splits by default — see `split_amount_unit`). Inbound SUM values stay raw on DTO; `amountTiyin()` accessor uses digit math, never float.
-
-Non-positive amounts throw `InvalidAmountException`: `checkout()->create()` rejects `amountTiyin <= 0`. Subscription `create`/`charge` convert through `Tiyin::toSum`, which also demands divisibility by 100 — `4990000` ships as `49900`, `4990001` throws.
-
-Fixed split amounts must be a real `int`. A string or float throws `InvalidAmountException` in both unit modes, before any conversion — a numeric string would ship the wrong unit silently.
-
-Inbound SUM strings are validated, never silently zeroed: `amountTiyin()` throws `InvalidAmountException` on anything but digits with at most two decimal places (optional leading `-`), and on a whole part of 17+ digits.
+All amounts `int` tiyin (1 sum = 100 tiyin) — params, responses, everything you pass. Package converts to sum where the API wants sum (subscription create/charge, fixed splits by default — see `split_amount_unit`). Inbound SUM values stay raw on the DTO; `amountTiyin()` uses digit math, never float. Non-positive amounts throw `InvalidAmountException`: `checkout()->create()` rejects `amountTiyin <= 0`. Subscription `create`/`charge` convert through `Tiyin::toSum`, which also demands divisibility by 100 — `4990000` ships as `49900`, `4990001` throws. Fixed split amounts must be a real `int`: a string or float throws `InvalidAmountException` in both unit modes, before any conversion — a numeric string would ship the wrong unit silently. Inbound SUM strings are validated, never silently zeroed: `amountTiyin()` throws `InvalidAmountException` on anything but digits with at most two decimal places (optional leading `-`), and on a whole part of 17+ digits.
 
 `stateEnum()` returns `?PaymentState` — check for null before matching on it. Null-honest on `OrderStatus` and `CheckoutResponse`: a non-numeric state, or one missing everywhere the DTO looks (for `OrderStatus`, both the top level and the `status_explanation` fallback), gives `null`. `WebhookPayload` is not — it casts state with `(int)`, so an empty or non-numeric value reads as `Created` (0) and fires no `PaymentSucceeded`/`PaymentCancelled`, a leading-digit string like `"2abc"` reads as `Success`, and only an unmodelled number (say `7`) yields null. A payment delivery whose `state` is missing, or empty (Laravel converts `''` to `null`), never reaches the DTO — 422 at verification.
 
@@ -50,9 +44,7 @@ $r = Wlcm::partner()->checkout()->create(
 $r->checkoutUrl; // redirect the customer here
 ```
 
-Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::partner()->payments()->confirmOtp($transactionId, $cid, $otp)`.
-
-Other calls:
+Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::partner()->payments()->confirmOtp($transactionId, $cid, $otp)`. Other calls:
 
 - `Wlcm::partner()->partners()->me()` — partner info
 - `Wlcm::partner()->providers()->all()` — payment providers (public endpoint)
@@ -63,7 +55,7 @@ Other calls:
 
 ## Subscriptions
 
-Recurring charge on bound card. Partner calls HMAC-signed; card attach/confirm/activate = unsigned end-user calls.
+Recurring charge on bound card. Partner calls HMAC-signed; card attach/confirm/activate = unsigned end-user calls. Lifecycle: `pending → card_attached → active → cancelled/expired`, plus `paused` after 3 failed charges. `cancel()` returns updated `Subscription`.
 
 ```php
 // Partner creates the subscription — amount in tiyin, converted to sum on the wire
@@ -93,8 +85,6 @@ Wlcm::partner()->subscriptions()->cancel($sub->id);
 
 **A charge that fails does NOT throw.** The server answers HTTP 200 with `status: "failed"` either way — always check `$charge->succeeded()` before fulfilling.
 
-Lifecycle: `pending → card_attached → active → cancelled/expired`, plus `paused` after 3 failed charges. `cancel()` returns updated `Subscription`.
-
 ## Split
 
 ```php
@@ -106,13 +96,11 @@ $split = Wlcm::partner()->payments()->split(7788, [
 Wlcm::partner()->payments()->getSplit(7788);
 ```
 
-Fixed amounts int tiyin like everything else — non-int throws. Wire unit via `wlcm.connections.{connection}.partner.split_amount_unit`: default `'sum'` converts for you; `'tiyin'` passes raw. Unit is sandbox-proven SUM (server errors compare fixed totals against payment SUM value); WLCM docs claim tiyin. Final WLCM confirmation pending (2026-07-25).
+Fixed amounts int tiyin like everything else — non-int throws. Wire unit via `wlcm.connections.{connection}.partner.split_amount_unit`: default `'sum'` converts for you, `'tiyin'` passes raw. Unit is sandbox-proven SUM (server errors compare fixed totals against payment SUM value); WLCM docs claim tiyin. Final WLCM confirmation pending (2026-07-25).
 
 > **Warning:** a wrong `split_amount_unit` misplaces money by a factor of 100. Do not flip this config without WLCM's confirmation.
 
-Server rules (WLCM-enforced): fixed total must equal payment amount exactly; duplicate recipients rejected 422; unknown recipients 404. Percent values (0-100) never converted. Response amounts stay raw decimal SUM strings on DTO.
-
-Response rows that are not arrays get dropped from `$split->splits` instead of hydrated into zeroed recipients — compare `count($split->splits)` against `$split->totalRecipients` to detect it. `$split->raw` keeps the untouched body either way.
+Server rules (WLCM-enforced): fixed total must equal payment amount exactly; duplicate recipients rejected 422; unknown recipients 404. Percent values (0-100) never converted. Response amounts stay raw decimal SUM strings on the DTO. Response rows that are not arrays get dropped from `$split->splits` instead of hydrated into zeroed recipients — compare `count($split->splits)` against `$split->totalRecipients` to detect it; `$split->raw` keeps the untouched body either way.
 
 ## Fiscalization
 
@@ -127,21 +115,15 @@ $registered = Wlcm::partner()->fiscalization()->register(
 $refunded = Wlcm::partner()->fiscalization()->refund(paymentId: 7788);
 ```
 
-Item amounts passthrough — SDK never converts them. Docs say tiyin; caller sends what API expects. (Sandbox OFD unwired, register returns 500.)
+Item amounts passthrough — SDK never converts them. Docs say tiyin; caller sends what the API expects. (Sandbox OFD unwired, register returns 500.)
 
 ## Webhooks
 
-Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list.
-
-Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar *required* field = 422 — payments need `order_id`, `payment_id`, `amount`, `state`, `timestamp`; subscriptions need `external_order_id`, `event`, `timestamp`. Optional fields are never checked and coerce to a typed default — `''` on payments, `''`/`0`/`'0'` on subscriptions; `signature` is required too, but checked on its own rather than through either list. Secret absent from config = `MissingConfigurationException`.
-
-Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
+Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list. Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar *required* field = 422 — payments need `order_id`, `payment_id`, `amount`, `state`, `timestamp`; subscriptions need `external_order_id`, `event`, `timestamp`. Optional fields are never checked and coerce to a typed default — `''` on payments, `''`/`0`/`'0'` on subscriptions; `signature` is required too, but checked on its own rather than through either list. Secret absent from config = `MissingConfigurationException`. Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
 
 > **`amount` and `external_id` are in neither base.** They arrive unauthenticated — a valid signature says nothing about them. Never fulfill on the webhook's amount; call `Wlcm::partner()->orders()->status($orderId)` and settle from that.
 
-Freshness: `wlcm.webhook.tolerance_seconds` (default 300) 403s a delivery whose `timestamp` sits further than that from now, in either direction; an unreadable timestamp is rejected the same way. `null` is the only way to switch the check off — any other non-numeric or non-positive value throws `MissingConfigurationException`. Freshness is not dedupe: an identical delivery replayed inside the window verifies fine.
-
-Events: `PaymentSucceeded`, `PaymentCancelled`, catch-all `WebhookReceived`:
+Freshness: `wlcm.webhook.tolerance_seconds` (default 300) 403s a delivery whose `timestamp` sits further than that from now, in either direction; an unreadable timestamp is rejected the same way. `null` is the only way to switch the check off — any other non-numeric or non-positive value throws `MissingConfigurationException`. Freshness is not dedupe: an identical delivery replayed inside the window verifies fine. Events: `PaymentSucceeded`, `PaymentCancelled`, catch-all `WebhookReceived`:
 
 ```php
 use Uzbek\Wlcm\Events\PaymentSucceeded;
@@ -152,17 +134,9 @@ Event::listen(function (PaymentSucceeded $event) {
 });
 ```
 
-Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`. A class that exists but does not implement the interface throws `MissingConfigurationException` while handling the delivery; a typo'd class name dies earlier, in the container. Neither fires at boot — both surface on the first webhook.
-
-Subscription webhooks: same route, detected by `event` field. Their signature base is per WLCM docs only, never confirmed against a real delivery — verify before production. Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`. `external_user_id`, `subscription_id`, `amount` and `status` sit outside that base too — unauthenticated like the payment `amount` above, so reconcile before trusting them.
-
-Dedupe needs the `wlcm_transactions` table — enable `wlcm.storage.transactions`, off by default. Without it every delivery fires events again, replays included: a default install re-runs your listeners for any identical body resent inside the tolerance window.
-
-With it on, both families dedupe: payment deliveries keyed `(connection, payment_id, state)`, subscription deliveries keyed `(connection, sha256("{external_order_id}:{event}:{timestamp}"))`. A payment redelivery is a duplicate only when the same `state` lands on a row already processed; a different `state` on the same `payment_id` is a transition and dispatches again, unless the terminal-state rule below refuses it as `stale`. Order per delivery is claim row → `WebhookReceived` + typed event → handler → mark processed. `WebhookReceived` fires once per unique delivery.
+Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`. A class that exists but does not implement the interface throws `MissingConfigurationException` while handling the delivery; a typo'd class name dies earlier, in the container. Neither fires at boot — both surface on the first webhook. Subscription webhooks: same route, detected by `event` field. Their signature base is per WLCM docs only, never confirmed against a real delivery — verify before production. Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`. `external_user_id`, `subscription_id`, `amount` and `status` sit outside that base too — unauthenticated like the payment `amount` above, so reconcile before trusting them. Dedupe needs the `wlcm_transactions` table — enable `wlcm.storage.transactions`, off by default. Without it every delivery fires events again, replays included: a default install re-runs your listeners for any identical body resent inside the tolerance window. With it on, both families dedupe: payment deliveries keyed `(connection, payment_id, state)`, subscription deliveries keyed `(connection, sha256("{external_order_id}:{event}:{timestamp}"))`. A payment redelivery is a duplicate only when the same `state` lands on a row already processed; a different `state` on the same `payment_id` is a transition and dispatches again, unless the terminal-state rule below refuses it as `stale`. Order per delivery is claim row → `WebhookReceived` + typed event → handler → mark processed. `WebhookReceived` fires once per unique delivery. With `wlcm.storage.logs` on, the delivery's log entry carries a `result` recording the verdict: `ok` dispatched, `duplicate` this delivery was already processed, `stale` a payment delivery that would move a row out of a terminal state (2 / -1 / -2) into anything but a cancel (-2). Subscription deliveries only ever log `ok` or `duplicate`.
 
 **Handlers must be idempotent.** `processed_at` is stamped only after your handler returns, so a crash mid-dispatch leaves the row claimed but unprocessed and the next redelivery runs the whole dispatch again — events included. At-least-once, not exactly-once.
-
-With `wlcm.storage.logs` on, the delivery's log entry carries a `result` recording the verdict: `ok` dispatched, `duplicate` this delivery was already processed, `stale` a payment delivery that would move a row out of a terminal state (2 / -1 / -2) into anything but a cancel (-2). Subscription deliveries only ever log `ok` or `duplicate`.
 
 **Do not rely on webhooks alone.** Live deliveries are effectively at-most-once: failed delivery recorded with `attempts: 1`, no retry scheduled. Reconcile by polling — for orders still pending on your side, call `Wlcm::partner()->orders()->status($orderId)` and settle from `isPaid`/`stateEnum()`.
 
@@ -184,7 +158,7 @@ php artisan migrate
 ],
 ```
 
-Both default `false` — nothing is recorded unless opted in. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use.
+Both default `false` — nothing is recorded unless opted in. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies; `wlcm_transactions` correlation keys stay raw.
 
 | `logs` | Where entries go | Env |
 | --- | --- | --- |
@@ -193,15 +167,7 @@ Both default `false` — nothing is recorded unless opted in. PAN, OTP, password
 | `'file'` | one JSON object per line at `logs_path` | `WLCM_LOGS=file`, `WLCM_LOGS_PATH` |
 | `'log'` | one `info` record per entry on `logs_channel` | `WLCM_LOGS=log`, `WLCM_LOGS_CHANNEL` |
 
-All three drivers record the same fields per entry — the `wlcm_logs` columns; outgoing entries carry the request/response ones, webhook entries only the delivery ones. The file driver appends with `LOCK_EX`, creates the directory if missing, and timestamps in ISO-8601.
-
-A relative `WLCM_LOGS_PATH` resolves against the process working directory — different for web, queue workers and CLI — so give it an absolute path.
-
-A typo'd `logs_channel` does not throw: Laravel falls back to its emergency logger and the entries land in `storage/logs/laravel.log` instead of the channel you named. Check the channel name first when entries go missing.
-
-Anything else throws `MissingConfigurationException` the first time the store resolves — a typo'd driver name fails loudly instead of silently dropping the audit trail. `null`, `''` and `'0'` count as off, so neither an unset env var nor `WLCM_LOGS=0` is a typo.
-
-The driver is picked once, when the store is first resolved — it is a singleton, so swapping between drivers at runtime needs a rebind. Turning logging off and back on at runtime keeps working: every driver rechecks the config on each write.
+All three drivers record the same fields per entry — the `wlcm_logs` columns; outgoing entries carry the request/response ones, webhook entries only the delivery ones. The file driver appends with `LOCK_EX`, creates the directory if missing, and timestamps in ISO-8601. A relative `WLCM_LOGS_PATH` resolves against the process working directory — different for web, queue workers and CLI — so give it an absolute path. A typo'd `logs_channel` does not throw: Laravel falls back to its emergency logger and the entries land in `storage/logs/laravel.log` instead of the channel you named. Check the channel name first when entries go missing. Anything else throws `MissingConfigurationException` the first time the store resolves — a typo'd driver name fails loudly instead of silently dropping the audit trail. `null`, `''` and `'0'` count as off, so neither an unset env var nor `WLCM_LOGS=0` is a typo. The driver is picked once, when the store is first resolved — it is a singleton, so swapping between drivers at runtime needs a rebind. Turning logging off and back on at runtime keeps working: every driver rechecks the config on each write.
 
 Both models are `MassPrunable`:
 
@@ -212,17 +178,7 @@ Schedule::command('model:prune', ['--model' => [
 ]])->daily();
 ```
 
-`prune_days` is the age window over every `wlcm_logs` row and over the `wlcm_transactions` rows that already carry `processed_at` — an in-flight delivery is never pruned out from under the dedupe check. Null or non-numeric switches that window off: `wlcm_logs` then prunes nothing at all, while `wlcm_transactions` still answers to `stale_days` below. Numeric values clamp to a floor of 1 day. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
-
-`stale_days` is a second, independent window over `wlcm_transactions` — off by default. It reaps only abandoned checkouts: rows no webhook ever claimed, so `processed_at`, `payment_id` and `delivery_key` are all null. A claimed row still holding `processed_at` null is a delivery that crashed mid-dispatch, and neither window reaps it at any setting — reaping one makes WLCM's next redelivery look fresh and re-runs your handlers. Reaping an abandoned checkout costs only the checkout-time linkage: a late webhook for it still dispatches, as a new row. The two windows disable and clamp independently; a prune run applies whichever are set.
-
-Pruning covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has.
-
-A failing audit sink is swallowed and `report()`ed so it never breaks a payment call — but if the app's default log channel is broken too, `report()` itself can throw and surface to the caller. Keep that channel healthy.
-
-Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface; rebind it to send audit entries somewhere none of the shipped drivers reach.
-
-Transaction rows go through `Uzbek\Wlcm\Storage\TransactionStore` (shipped binding: `TransactionRecorder`); rebind it to keep checkout and webhook-dedupe state outside `wlcm_transactions`. Both bindings are singletons handed to the manager at construction — rebind before the first `Wlcm::` call of the process, or the clients keep the old one.
+`prune_days` is the age window over every `wlcm_logs` row and over the `wlcm_transactions` rows that already carry `processed_at` — an in-flight delivery is never pruned out from under the dedupe check. Null or non-numeric switches that window off: `wlcm_logs` then prunes nothing at all, while `wlcm_transactions` still answers to `stale_days`. Numeric values clamp to a floor of 1 day. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers. `stale_days` is a second, independent window over `wlcm_transactions` — off by default. It reaps only abandoned checkouts: rows no webhook ever claimed, so `processed_at`, `payment_id` and `delivery_key` are all null. A claimed row still holding `processed_at` null is a delivery that crashed mid-dispatch, and neither window reaps it at any setting — reaping one makes WLCM's next redelivery look fresh and re-runs your handlers. Reaping an abandoned checkout costs only the checkout-time linkage: a late webhook for it still dispatches, as a new row. The two windows disable and clamp independently; a prune run applies whichever are set. Pruning covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has. A failing audit sink is swallowed and `report()`ed so it never breaks a payment call — but if the app's default log channel is broken too, `report()` itself can throw and surface to the caller. Keep that channel healthy. Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface; rebind it to send audit entries somewhere none of the shipped drivers reach. Transaction rows go through `Uzbek\Wlcm\Storage\TransactionStore` (shipped binding: `TransactionRecorder`); rebind it to keep checkout and webhook-dedupe state outside `wlcm_transactions`. Both bindings are singletons handed to the manager at construction — rebind before the first `Wlcm::` call of the process, or the clients keep the old one.
 
 ## Testing
 
@@ -234,17 +190,7 @@ use Uzbek\Wlcm\Facades\Wlcm;
 Wlcm::fake();
 ```
 
-No WLCM config needed. `fake()` fills `base_url`, `api_key`, `api_secret`, `webhook_secret` on the default connection with dummies, but only where the value is missing or empty — a configured value is never clobbered.
-
-Call it before the first `Wlcm::` call of the test. The manager caches the `Connection` and the client captures its config at construction, so a `fake()` running after the client exists leaves that client on the old config.
-
-Unstubbed endpoints throw. The catch-all answers HTTP 500, so `ServerException` comes out with message `wlcm stub missing for this endpoint` and `$e->requestPath` naming the URL — nothing success-shaped to mistake for a real answer.
-
-`fake()` installs a global `Http::fake()` with a `*` catch-all: it stubs every outbound HTTP call in the app, not just WLCM's. Anything else your test talks to over HTTP gets that 500.
-
-The filled `webhook_secret` is the published constant `whsec_fake`, so webhook tests running under `fake()` verify signatures against a value printed in this README — they prove wiring, not secrecy. Set a real secret in config before calling `fake()` when the secret is what you are testing.
-
-Custom responses + assertions:
+No WLCM config needed. `fake()` fills `base_url`, `api_key`, `api_secret`, `webhook_secret` on the default connection with dummies, but only where the value is missing or empty — a configured value is never clobbered. Call it before the first `Wlcm::` call of the test: the manager caches the `Connection` and the client captures its config at construction, so a `fake()` running after the client exists leaves that client on the old config. Unstubbed endpoints throw. The catch-all answers HTTP 500, so `ServerException` comes out with message `wlcm stub missing for this endpoint` and `$e->requestPath` naming the URL — nothing success-shaped to mistake for a real answer. `fake()` installs that catch-all as a global `Http::fake()` `*`: it stubs every outbound HTTP call in the app, not just WLCM's, so anything else your test talks to over HTTP gets that 500. The filled `webhook_secret` is the published constant `whsec_fake`, so webhook tests running under `fake()` verify signatures against a value printed in this README — they prove wiring, not secrecy. Set a real secret in config before calling `fake()` when the secret is what you are testing. Custom responses + assertions (`$fake->assertNothingSent()` asserts no calls):
 
 ```php
 $fake = Wlcm::fake([
@@ -257,15 +203,9 @@ $fake->assertCheckoutCreated(fn (array $payload): bool => $payload['external_id'
 $fake->assertSent(fn ($request) => true);
 ```
 
-`$fake->assertNothingSent()` asserts no calls.
-
 ## Sandbox
 
-- Base URL: `https://apidev.wlcm.uz/api/v1`
-- `mock_payme` — sandbox-only provider, pass raw string (`provider: 'mock_payme'`); not in `PaymentProvider` enum, invalid in production. Hosted test page: any card number, straight to OTP
-- Active: `payme`, `click`, `mock_payme`. Inactive: `uzum`, `paylov`, `card`
-- Fiscal register returns HTTP 500 even for paid payments — sandbox OFD unwired
-- Subscription `attachCard` fails `card_not_found` (no Paylov test cards) — `activate`/`charge` untestable end-to-end
+Base URL: `https://apidev.wlcm.uz/api/v1`. `mock_payme` — sandbox-only provider, pass raw string (`provider: 'mock_payme'`); not in `PaymentProvider` enum, invalid in production. Hosted test page: any card number, straight to OTP. Active: `payme`, `click`, `mock_payme`. Inactive: `uzum`, `paylov`, `card`. Fiscal register returns HTTP 500 even for paid payments — sandbox OFD unwired. Subscription `attachCard` fails `card_not_found` (no Paylov test cards) — `activate`/`charge` untestable end-to-end.
 
 ## Verify on production before v1.0.0
 
