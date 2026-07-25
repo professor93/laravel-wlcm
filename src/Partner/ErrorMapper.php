@@ -33,7 +33,7 @@ final class ErrorMapper
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    responseBody: Masker::scrubPans(mb_strcut($response->body(), 0, 500, 'UTF-8')),
+                    responseBody: mb_strcut(Masker::scrubPans($response->body()), 0, 500, 'UTF-8'),
                 );
             }
 
@@ -77,16 +77,17 @@ final class ErrorMapper
 
         $message = Masker::scrubPans($message);
         /** @var array<string, list<string>> $errors */
-        $errors = self::scrubPanProse($errors);
+        $errors = Masker::scrubProse($errors);
 
-        // Derivation above reads the RAW body on purpose. Every surface that leaves on the
-        // exception is PAN-scrubbed: message/errors keep server prose minus PANs, and responseBody
-        // is additionally key-masked — FastAPI echoes the submitted payload there.
+        // Derivation above reads the RAW body on purpose. Every string and integer surface that
+        // leaves on the exception is PAN-scrubbed: message/errors keep server prose minus PANs, and
+        // responseBody is additionally key-masked — FastAPI echoes the submitted payload there.
         $exposedBody = match (true) {
-            is_array($body) => self::scrubPanProse(Masker::mask(self::maskDetailInputs($body))),
+            is_array($body) => Masker::scrubProse(Masker::mask(self::maskDetailInputs($body))),
             // Cut on a codepoint boundary: a half character makes json_encode of the whole
             // exception context fail.
-            is_string($body) => Masker::scrubPans(mb_strcut($body, 0, 500, 'UTF-8')),
+            is_string($body) => mb_strcut(Masker::scrubPans($body), 0, 500, 'UTF-8'),
+            is_int($body) => ($s = Masker::scrubPans((string) $body)) === (string) $body ? $body : $s,
             default => $body,
         };
 
@@ -150,23 +151,6 @@ final class ErrorMapper
         $body['detail'] = $detail;
 
         return $body;
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $data
-     * @return array<array-key, mixed>
-     */
-    private static function scrubPanProse(array $data): array
-    {
-        foreach ($data as $key => $value) {
-            $data[$key] = match (true) {
-                is_string($value) => Masker::scrubPans($value),
-                is_array($value) => self::scrubPanProse($value),
-                default => $value,
-            };
-        }
-
-        return $data;
     }
 
     /**

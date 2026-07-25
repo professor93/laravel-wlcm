@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\WebhookReceived;
+use Uzbek\Wlcm\Exceptions\ConflictException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
@@ -468,5 +469,82 @@ final class StorageWiringTest extends TestCase
         $this->assertIsArray($spy->requestBody);
         $this->assertSame('986099******9999', $spy->requestBody['card_number']);
         $this->assertSame('***', $spy->requestBody['expire_date']);
+    }
+
+    public function test_pan_prose_in_a_success_body_is_scrubbed_on_the_log_surface(): void
+    {
+        $spy = new class implements LogStore
+        {
+            public mixed $responseBody = null;
+
+            public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void
+            {
+                $this->responseBody = $responseBody;
+            }
+
+            public function webhook(string $connection, array $payload, string $result): void {}
+        };
+        $this->app->instance(LogStore::class, $spy);
+
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'ok',
+            'note' => 'settled via card 8600123456789012',
+            'ref' => 8600123456789012,
+        ], 200)]);
+
+        Wlcm::partner()->get('/partners/me');
+
+        $body = $spy->responseBody;
+        $this->assertIsArray($body);
+        $this->assertSame('settled via card 860012***9012', $body['note']);
+        $this->assertSame('860012***9012', $body['ref']);
+    }
+
+    public function test_pan_prose_in_a_409_body_is_scrubbed_on_the_log_surface(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['detail' => 'Card 8600123456789012 already settled'], 409,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->cancel(172);
+            $this->fail('expected ConflictException');
+        } catch (ConflictException) {
+        }
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->response_body);
+        $this->assertSame('Card 860012***9012 already settled', $log->response_body['detail']);
+    }
+
+    public function test_pan_prose_in_a_422_detail_is_scrubbed_on_the_log_surface(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'value_error',
+                    'loc' => ['body', 'card_number'],
+                    'msg' => 'Value error, card 8600123456789012 is blocked',
+                    'input' => '8600123456789012',
+                ],
+            ],
+        ], 422)]);
+
+        try {
+            Wlcm::partner()->checkout()->create(
+                amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
+                cardNumber: '8600123456789012', expireDate: '3003',
+            );
+            $this->fail('expected ValidationException');
+        } catch (ValidationException) {
+        }
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->response_body);
+        $detail = $log->response_body['detail'];
+        $this->assertIsArray($detail);
+        $this->assertIsArray($detail[0]);
+        $this->assertSame('Value error, card 860012***9012 is blocked', $detail[0]['msg']);
+        $this->assertSame('860012******9012', $detail[0]['input']);
     }
 }

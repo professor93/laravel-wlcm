@@ -67,6 +67,24 @@ final class Masker
         return $out;
     }
 
+    /**
+     * @param  array<array-key, mixed>  $data
+     * @return array<array-key, mixed>
+     */
+    public static function scrubProse(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            $data[$key] = match (true) {
+                is_string($value) => self::scrubPans($value),
+                is_int($value) => ($s = self::scrubPans((string) $value)) === (string) $value ? $value : $s,
+                is_array($value) => self::scrubProse($value),
+                default => $value,
+            };
+        }
+
+        return $data;
+    }
+
     public static function scrubPans(string $text): string
     {
         // A run failing Luhn is left whole, never hunted for a passing substring: false-positive control beats exhaustiveness.

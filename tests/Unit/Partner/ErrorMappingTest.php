@@ -630,6 +630,66 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    public function test_pan_straddling_the_500_byte_cut_leaves_no_raw_digit_run(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            str_repeat('x', 485).'8600123456789012'.str_repeat('y', 100), 502,
+        )]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertLessThanOrEqual(500, strlen($body));
+            $this->assertSame(0, preg_match('/[0-9]{13,}/', $body));
+            $this->assertStringContainsString('860012***9012', $body);
+        }
+    }
+
+    public function test_pan_straddling_the_cut_in_a_malformed_200_body_leaves_no_raw_digit_run(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            str_repeat('x', 485).'8600123456789012'.str_repeat('y', 100), 200, ['Content-Type' => 'text/html'],
+        )]);
+
+        try {
+            Wlcm::partner()->orders()->status(410);
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertLessThanOrEqual(500, strlen($body));
+            $this->assertSame(0, preg_match('/[0-9]{13,}/', $body));
+            $this->assertStringContainsString('860012***9012', $body);
+        }
+    }
+
+    public function test_bare_number_error_body_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('8600123456789012', 502)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertSame('860012***9012', $e->responseBody);
+        }
+    }
+
+    public function test_bare_non_luhn_number_error_body_stays_an_integer(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('1234567890123456', 502)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertSame(1234567890123456, $e->responseBody);
+        }
+    }
+
     public function test_successful_empty_object_body_still_returns_array(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response('{}', 200)]);

@@ -147,4 +147,48 @@ final class MaskerTest extends TestCase
     {
         $this->assertSame('', Masker::scrubPans(''));
     }
+
+    public function test_scrub_prose_walks_nested_string_leaves(): void
+    {
+        $out = Masker::scrubProse(['a' => ['b' => 'card 8600123456789012 blocked']]);
+        $this->assertSame(['a' => ['b' => 'card 860012***9012 blocked']], $out);
+    }
+
+    public function test_scrub_prose_scrubs_integer_leaves(): void
+    {
+        $out = Masker::scrubProse(['ref' => 8600123456789012]);
+        $this->assertSame('860012***9012', $out['ref']);
+    }
+
+    public function test_scrub_prose_keeps_untouched_integers_as_integers(): void
+    {
+        $out = Masker::scrubProse(['amount' => 120000, 'order_id' => 1254, 'run' => 1234567890123456]);
+        $this->assertSame(['amount' => 120000, 'order_id' => 1254, 'run' => 1234567890123456], $out);
+    }
+
+    public function test_scrub_prose_leaves_masked_form_untouched(): void
+    {
+        $out = Masker::scrubProse(['card_number' => '860012******9012', 'msg' => 'card 986099******9999 blocked']);
+        $this->assertSame(['card_number' => '860012******9012', 'msg' => 'card 986099******9999 blocked'], $out);
+    }
+
+    public function test_scrub_prose_is_idempotent_after_mask(): void
+    {
+        $once = Masker::scrubProse(Masker::mask([
+            'card_number' => '8600123456789012',
+            'note' => 'card 8600123456789012 blocked',
+            'ref' => 8600123456789012,
+        ]));
+
+        $this->assertSame('860012******9012', $once['card_number']);
+        $this->assertSame('card 860012***9012 blocked', $once['note']);
+        $this->assertSame('860012***9012', $once['ref']);
+        $this->assertSame($once, Masker::scrubProse($once));
+    }
+
+    public function test_scrub_prose_passes_through_other_leaf_types(): void
+    {
+        $out = Masker::scrubProse(['f' => 1.5, 'b' => true, 'n' => null]);
+        $this->assertSame(['f' => 1.5, 'b' => true, 'n' => null], $out);
+    }
 }

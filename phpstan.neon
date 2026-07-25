@@ -17,7 +17,7 @@ parameters:
         -
             identifier: method.nonObject
             path: tests
-            count: 34
+            count: 35
         # Hydration-boundary tests feed shape-violating wire data on purpose; widening the DTO shapes would erase the survival guarantee. Split per file because a count pins to one path.
         -
             identifier: argument.type
