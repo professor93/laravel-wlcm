@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Testing;
 
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -14,9 +15,18 @@ use Illuminate\Support\Facades\Http;
  */
 final class WlcmFake
 {
+    private const array DUMMY_CREDENTIALS = [
+        'base_url' => 'https://wlcm.fake/api/v1',
+        'api_key' => 'fake-key',
+        'api_secret' => 'fake-secret',
+        'webhook_secret' => 'whsec_fake',
+    ];
+
     /** @param array<string, array<string, mixed>|PromiseInterface> $responses */
     public function __construct(array $responses = [])
     {
+        $this->fillMissingCredentials();
+
         $prepared = [];
 
         foreach ($responses as $pattern => $response) {
@@ -40,8 +50,25 @@ final class WlcmFake
                 'created_at' => '2026-01-01T00:00:00Z', 'sub_partners' => [],
                 'cancel_payment_enabled' => false, 'show_phone_number' => false,
             ]),
-            '*' => Http::response(['result' => null]),
+            '*' => Http::response(['error' => 'wlcm stub missing for this endpoint'], 500),
         ]);
+    }
+
+    // Fresh installs have no WLCM env vars; without these the client dies on
+    // MissingConfigurationException before a stub is ever consulted.
+    private function fillMissingCredentials(): void
+    {
+        $default = Config::get('wlcm.default');
+        $connection = is_string($default) && $default !== '' ? $default : 'main';
+
+        foreach (self::DUMMY_CREDENTIALS as $key => $value) {
+            $path = "wlcm.connections.{$connection}.partner.{$key}";
+            $current = Config::get($path);
+
+            if (! is_string($current) || $current === '') {
+                Config::set($path, $value);
+            }
+        }
     }
 
     public function assertSent(callable $filter): void
