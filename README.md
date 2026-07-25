@@ -24,11 +24,13 @@ Multiple partners: entries under `wlcm.connections` in `config/wlcm.php`, then `
 
 All amounts `int` tiyin (1 sum = 100 tiyin) — params, responses, everything you pass. Package converts to sum where API wants sum (subscription create/charge, fixed splits by default — see `split_amount_unit`). Inbound SUM values stay raw on DTO; `amountTiyin()` accessor uses digit math, never float.
 
+Non-positive amounts throw `InvalidAmountException`: `checkout()->create()` rejects `amountTiyin <= 0`. Subscription `create`/`charge` convert through `Tiyin::toSum`, which also demands divisibility by 100 — `4990000` ships as `49900`, `4990001` throws.
+
 Fixed split amounts must be a real `int`. A string or float throws `InvalidAmountException` in both unit modes, before any conversion — a numeric string would ship the wrong unit silently.
 
 Inbound SUM strings are validated, never silently zeroed: `amountTiyin()` throws `InvalidAmountException` on anything but digits with at most two decimal places (optional leading `-`), and on a whole part of 17+ digits.
 
-`stateEnum()` returns `?PaymentState` — `null` when the server omits state or sends a value the enum does not model. Check for null before matching on it.
+`stateEnum()` returns `?PaymentState` — check for null before matching on it. Null-honest on `OrderStatus` and `CheckoutResponse`: a missing or non-numeric state gives `null`. `WebhookPayload` is not — it casts state with `(int)`, so an empty or non-numeric value reads as `Created` (0) and fires no `PaymentSucceeded`/`PaymentCancelled`, a leading-digit string like `"2abc"` reads as `Success`, and only an unmodelled number (say `7`) yields null. A payment delivery missing `state` outright never reaches the DTO — 422 at verification.
 
 ## Partner API
 
@@ -131,7 +133,7 @@ Item amounts passthrough — SDK never converts them. Docs say tiyin; caller sen
 
 Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list.
 
-Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar required field = 422. Secret absent from config = `MissingConfigurationException`.
+Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar *required* field = 422 — payments need `order_id`, `payment_id`, `amount`, `state`, `timestamp`; subscriptions need `external_order_id`, `event`, `timestamp`. Optional fields are never checked and coerce to `''`. Secret absent from config = `MissingConfigurationException`.
 
 Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
 
@@ -150,13 +152,13 @@ Event::listen(function (PaymentSucceeded $event) {
 });
 ```
 
-Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`. A configured class that does not implement the interface throws `MissingConfigurationException` while handling the delivery — not at boot, so a typo surfaces on the first webhook.
+Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`. A class that exists but does not implement the interface throws `MissingConfigurationException` while handling the delivery; a typo'd class name dies earlier, in the container. Neither fires at boot — both surface on the first webhook.
 
-Subscription webhooks: same route, detected by `event` field. Their signature base is per WLCM docs only, never confirmed against a real delivery — verify before production. Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`.
+Subscription webhooks: same route, detected by `event` field. Their signature base is per WLCM docs only, never confirmed against a real delivery — verify before production. Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`. `external_user_id`, `subscription_id`, `amount` and `status` sit outside that base too — unauthenticated like the payment `amount` above, so reconcile before trusting them.
 
 Dedupe needs the `wlcm_transactions` table — enable `wlcm.storage.transactions`, off by default. Without it every delivery fires events again, replays included: a default install re-runs your listeners for any identical body resent inside the tolerance window.
 
-With it on, both families dedupe: payment deliveries keyed `(connection, payment_id)`, subscription deliveries keyed `(connection, sha256("{external_order_id}:{event}:{timestamp}"))`. Order per delivery is claim row → `WebhookReceived` + typed event → handler → mark processed. `WebhookReceived` fires once per unique delivery.
+With it on, both families dedupe: payment deliveries keyed `(connection, payment_id, state)`, subscription deliveries keyed `(connection, sha256("{external_order_id}:{event}:{timestamp}"))`. A payment redelivery is a duplicate only when the same `state` lands on a row already processed; a different `state` on the same `payment_id` is a transition and dispatches again, unless the terminal-state rule below refuses it as `stale`. Order per delivery is claim row → `WebhookReceived` + typed event → handler → mark processed. `WebhookReceived` fires once per unique delivery.
 
 **Handlers must be idempotent.** `processed_at` is stamped only after your handler returns, so a crash mid-dispatch leaves the row claimed but unprocessed and the next redelivery runs the whole dispatch again — events included. At-least-once, not exactly-once.
 
@@ -190,7 +192,7 @@ Schedule::command('model:prune', ['--model' => [
 ]])->daily();
 ```
 
-`prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check.
+`prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
 
 Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface, bound to `DatabaseLogStore`; rebind it to send audit rows somewhere else. Database is the only driver shipped today.
 
