@@ -22,8 +22,12 @@ final class Tiyin
     public static function fromSumString(string $sum): int
     {
         // \z not $: PCRE $ tolerates a trailing newline, which the splice would truncate.
-        if (preg_match('/^-?(\d{1,16})(\.\d{1,2})?\z/', $sum) !== 1) {
+        if (preg_match('/^-?\d+(?:\.\d{1,2})?\z/', $sum) !== 1) {
             throw new InvalidAmountException("Malformed SUM amount string: '{$sum}'");
+        }
+
+        if (preg_match('/^-?\d{17,}/', $sum) === 1) {
+            throw new InvalidAmountException("SUM amount exceeds supported magnitude: '{$sum}'");
         }
 
         [$whole, $fraction] = array_pad(explode('.', $sum, 2), 2, '');

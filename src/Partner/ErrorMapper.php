@@ -14,6 +14,7 @@ use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
+use Uzbek\Wlcm\Storage\Masker;
 
 // Maps Partner API responses (FastAPI error shapes) onto the package exception tree.
 final class ErrorMapper
@@ -74,7 +75,15 @@ final class ErrorMapper
             }
         }
 
-        $args = [$message, $connectionName, $method, $url, $status, $body];
+        // FastAPI echoes the submitted payload in detail[].input; derivation above deliberately
+        // read the raw body, only what leaves on the exception is scrubbed.
+        $exposedBody = match (true) {
+            is_array($body) => Masker::mask($body),
+            is_string($body) => substr($body, 0, 500),
+            default => $body,
+        };
+
+        $args = [$message, $connectionName, $method, $url, $status, $exposedBody];
 
         // 4xx is a determinate business answer. 5xx/3xx leave the outcome unknown and 401/403 were
         // never business-evaluated, so a body code there must not be relabelled as a decline;
@@ -90,7 +99,7 @@ final class ErrorMapper
             $status === 404 => new NotFoundException(...$args, errorCode: $errorCode),
             $status === 409 => new ConflictException(...$args, errorCode: $errorCode),
             $status === 422 || $status === 400 => new ValidationException(
-                $message, $connectionName, $method, $url, $status, $body,
+                $message, $connectionName, $method, $url, $status, $exposedBody,
                 errors: $errors, errorCode: $errorCode,
             ),
             default => new ServerException(...$args, errorCode: $errorCode),

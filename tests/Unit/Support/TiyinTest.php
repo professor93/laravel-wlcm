@@ -61,6 +61,18 @@ final class TiyinTest extends TestCase
         }
     }
 
+    public function test_from_sum_string_separates_magnitude_from_malformed(): void
+    {
+        $this->expectExceptionMessage("SUM amount exceeds supported magnitude: '99999999999999999.99'");
+        Tiyin::fromSumString('99999999999999999.99');
+    }
+
+    public function test_from_sum_string_malformed_keeps_its_message(): void
+    {
+        $this->expectExceptionMessage("Malformed SUM amount string: 'abc'");
+        Tiyin::fromSumString('abc');
+    }
+
     public function test_from_sum_string_valid_forms(): void
     {
         $this->assertSame(500000, Tiyin::fromSumString('5000.00'));

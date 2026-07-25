@@ -364,6 +364,46 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    public function test_thrown_exception_body_is_masked(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'value_error',
+                    'loc' => ['body', 'secret_key'],
+                    'msg' => 'Value error, secret_key is reserved',
+                    'input' => ['secret_key' => 'whsec_x', 'card_number' => '9860991234569999'],
+                ],
+            ],
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->webhooks()->create('https://app.test/hooks', 'whsec_x');
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame('body.secret_key: Value error, secret_key is reserved', $e->getMessage());
+            $this->assertSame(['secret_key' => ['Value error, secret_key is reserved']], $e->errors());
+
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $input = $body['detail'][0]['input'];
+            $this->assertArrayNotHasKey('secret_key', $input);
+            $this->assertSame('986099******9999', $input['card_number']);
+        }
+    }
+
+    public function test_thrown_exception_string_body_is_truncated(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(str_repeat('x', 2000), 502)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertSame(str_repeat('x', 500), $e->responseBody);
+        }
+    }
+
     public function test_successful_response_with_html_body_throws_server_exception(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(

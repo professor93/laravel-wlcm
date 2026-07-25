@@ -43,7 +43,10 @@ final class PartnerClient
                 return $this->send('GET', $url, null);
             } catch (ConnectionException $e) {
                 $lastTransport = $e;
-                usleep(100_000 * ($i + 1));
+
+                if ($i + 1 < $attempts) {
+                    usleep(100_000 * ($i + 1));
+                }
             }
         }
 
