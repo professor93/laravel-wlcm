@@ -746,6 +746,43 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('***', $log->request_body['expire_date']);
     }
 
+    public function test_pan_prose_echoed_into_a_response_id_is_scrubbed_in_the_log_columns(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'order for card 4111111111111111',
+            'state' => 0, 'checkout_url' => 'https://c.test/x',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'order for card 4111111111111111',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertSame('order for card 411111***1111', $log->external_id);
+        $this->assertStringNotContainsString(
+            '4111111111111111',
+            json_encode($log->getAttributes(), JSON_THROW_ON_ERROR),
+        );
+        // Correlation keys taken from response, not log surface.
+        $this->assertSame('order for card 4111111111111111', WlcmTransaction::sole()->external_id);
+    }
+
+    public function test_ordinary_echoed_ids_survive_the_log_column_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'ORD-7', 'payment_id' => '7788',
+            'transaction_id' => 'TX-9', 'state' => 0,
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $log = WlcmLog::sole();
+        $this->assertSame('ORD-7', $log->external_id);
+        $this->assertSame('1254', $log->order_id);
+        $this->assertSame('7788', $log->payment_id);
+        $this->assertSame('TX-9', $log->transaction_id);
+    }
+
     public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
     {
         // external_id sits outside signature base, so prose there is unauthenticated.

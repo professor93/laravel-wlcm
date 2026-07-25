@@ -150,10 +150,10 @@ final class PartnerClient
             $transactionId = $json['transaction_id'] ?? null;
 
             $ids = [
-                'external_id' => is_scalar($externalId) ? (string) $externalId : null,
-                'order_id' => is_scalar($orderId) ? (string) $orderId : null,
-                'payment_id' => is_scalar($paymentId) ? (string) $paymentId : null,
-                'transaction_id' => is_scalar($transactionId) ? (string) $transactionId : null,
+                'external_id' => $this->maskedId($externalId),
+                'order_id' => $this->maskedId($orderId),
+                'payment_id' => $this->maskedId($paymentId),
+                'transaction_id' => $this->maskedId($transactionId),
             ];
         }
 
@@ -198,6 +198,12 @@ final class PartnerClient
         $masked = Masker::scrubProse(Masker::mask($decoded));
 
         return $masked;
+    }
+
+    // Upstream echoes merchant free-text back into ids, so columns need the body scrub too.
+    private function maskedId(mixed $value): ?string
+    {
+        return is_scalar($value) ? Masker::scrubPans((string) $value) : null;
     }
 
     private function elapsedMs(int|float $startedNs): int

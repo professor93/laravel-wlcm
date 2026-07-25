@@ -14,7 +14,10 @@ use Illuminate\Support\Carbon;
  * @property array<array-key, mixed>|null $request_body
  * @property array<array-key, mixed>|null $response_body
  * @property int|null $status_code
+ * @property string|null $external_id
+ * @property string|null $order_id
  * @property string|null $payment_id
+ * @property string|null $transaction_id
  * @property string $result
  * @property Carbon|null $created_at
  */
