@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class CheckoutTest extends TestCase
@@ -105,5 +106,31 @@ final class CheckoutTest extends TestCase
         $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
         $this->assertSame(99, $r->state);
         $this->assertNull($r->stateEnum());
+    }
+
+    public function test_checkout_response_tolerates_empty_server_shape(): void
+    {
+        $r = CheckoutResponse::fromArray([]);
+
+        $this->assertSame(0, $r->orderId);
+        $this->assertNull($r->externalId);
+        $this->assertNull($r->state);
+        $this->assertNull($r->checkoutUrl);
+        $this->assertNull($r->message);
+        $this->assertNull($r->transactionId);
+        $this->assertNull($r->otpSentPhone);
+        $this->assertNull($r->cid);
+    }
+
+    public function test_checkout_response_tolerates_wrong_types(): void
+    {
+        $r = CheckoutResponse::fromArray([
+            'order_id' => ['x'], 'external_id' => ['x'], 'checkout_url' => ['x'], 'message' => ['x'],
+        ]);
+
+        $this->assertSame(0, $r->orderId);
+        $this->assertNull($r->externalId);
+        $this->assertNull($r->checkoutUrl);
+        $this->assertNull($r->message);
     }
 }

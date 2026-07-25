@@ -22,17 +22,24 @@ final readonly class CheckoutResponse
     /** @param CheckoutResponseShape $data */
     public static function fromArray(array $data): self
     {
+        $orderId = $data['order_id'] ?? null;
         $stateRaw = $data['state'] ?? null;
+        $externalId = $data['external_id'] ?? null;
+        $checkoutUrl = $data['checkout_url'] ?? null;
+        $message = $data['message'] ?? null;
+        $transactionId = $data['transaction_id'] ?? null;
+        $otpSentPhone = $data['otp_sent_phone'] ?? null;
+        $cid = $data['cid'] ?? null;
 
         return new self(
-            orderId: (int) $data['order_id'],
-            externalId: isset($data['external_id']) ? (string) $data['external_id'] : null,
+            orderId: is_numeric($orderId) ? (int) $orderId : 0,
+            externalId: is_scalar($externalId) ? (string) $externalId : null,
             state: is_numeric($stateRaw) ? (int) $stateRaw : null,
-            checkoutUrl: isset($data['checkout_url']) ? (string) $data['checkout_url'] : null,
-            message: isset($data['message']) ? (string) $data['message'] : null,
-            transactionId: isset($data['transaction_id']) ? (string) $data['transaction_id'] : null,
-            otpSentPhone: isset($data['otp_sent_phone']) ? (string) $data['otp_sent_phone'] : null,
-            cid: isset($data['cid']) ? (string) $data['cid'] : null,
+            checkoutUrl: is_scalar($checkoutUrl) ? (string) $checkoutUrl : null,
+            message: is_scalar($message) ? (string) $message : null,
+            transactionId: is_scalar($transactionId) ? (string) $transactionId : null,
+            otpSentPhone: is_scalar($otpSentPhone) ? (string) $otpSentPhone : null,
+            cid: is_scalar($cid) ? (string) $cid : null,
         );
     }
 

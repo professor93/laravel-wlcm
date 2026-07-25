@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Enums\SplitType;
 use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\SplitRecipient;
+use Uzbek\Wlcm\Partner\Data\SplitResponse;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class SplitTest extends TestCase
@@ -148,5 +150,77 @@ final class SplitTest extends TestCase
         Wlcm::partner()->payments()->split(7788, [
             ['recipient_id' => 22, 'recipient_type' => 'partner', 'split_type' => 'fixed', 'amount' => -100],
         ]);
+    }
+
+    public function test_uppercase_split_type_reaches_the_wire_lowercased(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(self::FIXED_RESPONSE, 201)]);
+
+        Wlcm::partner()->payments()->split(170, [
+            ['recipient_id' => 31, 'recipient_type' => 'partner', 'split_type' => 'FIXED', 'amount' => 100000],
+            ['recipient_id' => 10, 'recipient_type' => 'brand', 'split_type' => 'PERCENT', 'amount' => 30],
+        ]);
+
+        Http::assertSent(fn (Request $req): bool => $req->body() === '{"recipients":[{"recipient_id":31,"recipient_type":"partner","split_type":"fixed","amount":1000},{"recipient_id":10,"recipient_type":"brand","split_type":"percent","amount":30}]}');
+    }
+
+    /** GREEN-lock: normalizing split_type must never add the key when the caller omitted it. */
+    public function test_split_type_key_stays_absent_when_not_sent(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(self::RESPONSE, 201)]);
+
+        Wlcm::partner()->payments()->split(7788, [
+            ['recipient_id' => 10, 'recipient_type' => 'brand', 'amount' => 70],
+        ]);
+
+        Http::assertSent(fn (Request $req): bool => $req->body() === '{"recipients":[{"recipient_id":10,"recipient_type":"brand","amount":70}]}');
+    }
+
+    public function test_split_dtos_tolerate_empty_server_shape(): void
+    {
+        $recipient = SplitRecipient::fromArray([]);
+
+        $this->assertSame(0, $recipient->id);
+        $this->assertSame('', $recipient->recipientType);
+        $this->assertSame(0, $recipient->recipientId);
+        $this->assertSame('', $recipient->splitType);
+        $this->assertSame(0, $recipient->amount);
+        $this->assertNull($recipient->percentValue);
+        $this->assertSame(0, $recipient->state);
+        $this->assertSame('', $recipient->stateText);
+
+        $response = SplitResponse::fromArray([]);
+
+        $this->assertSame(0, $response->paymentId);
+        $this->assertSame('', $response->splitType);
+        $this->assertSame(0, $response->totalRecipients);
+        $this->assertSame(0, $response->totalSplitAmount);
+        $this->assertSame([], $response->splits);
+    }
+
+    public function test_split_dtos_tolerate_wrong_types(): void
+    {
+        $recipient = SplitRecipient::fromArray([
+            'id' => ['x'], 'recipient_type' => ['x'], 'recipient_id' => ['x'], 'split_type' => ['x'],
+            'amount' => ['x'], 'percent_value' => ['x'], 'state' => ['x'], 'state_text' => ['x'],
+        ]);
+
+        $this->assertSame(0, $recipient->id);
+        $this->assertSame('', $recipient->splitType);
+        $this->assertSame(0, $recipient->amount);
+        $this->assertNull($recipient->percentValue);
+
+        $response = SplitResponse::fromArray(['payment_id' => 7788, 'splits' => 'not-a-list']);
+
+        $this->assertSame(7788, $response->paymentId);
+        $this->assertSame([], $response->splits);
+    }
+
+    public function test_split_response_drops_non_array_rows(): void
+    {
+        $response = SplitResponse::fromArray(['payment_id' => 7788, 'splits' => ['oops', ['id' => 3]]]);
+
+        $this->assertCount(1, $response->splits);
+        $this->assertSame(3, $response->splits[0]->id);
     }
 }

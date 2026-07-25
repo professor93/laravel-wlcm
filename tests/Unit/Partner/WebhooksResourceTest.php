@@ -7,6 +7,7 @@ namespace Uzbek\Wlcm\Tests\Unit\Partner;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\WebhookInfo;
 use Uzbek\Wlcm\Partner\RequestSigner;
 use Uzbek\Wlcm\Tests\TestCase;
 
@@ -133,5 +134,52 @@ final class WebhooksResourceTest extends TestCase
         $this->assertSame(['payment.success'], $hook->events);
         $this->assertSame('2026-07-24T22:00:00Z', $hook->lastTriggeredAt);
         $this->assertSame(200, $hook->lastStatusCode);
+    }
+
+    public function test_all_unwraps_pagination(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'count' => 1, 'next' => null, 'previous' => null,
+            'results' => [
+                ['id' => 7, 'url' => 'https://app.test/hook', 'is_active' => true],
+            ],
+        ], 200)]);
+
+        $hooks = Wlcm::partner()->webhooks()->all();
+
+        $this->assertCount(1, $hooks);
+        $this->assertSame(7, $hooks[0]->id);
+        $this->assertSame('https://app.test/hook', $hooks[0]->url);
+    }
+
+    /** GREEN-lock: WebhookInfo already survives a bare {}. */
+    public function test_webhook_info_tolerates_empty_server_shape(): void
+    {
+        $hook = WebhookInfo::fromArray([]);
+
+        $this->assertSame(0, $hook->id);
+        $this->assertSame('', $hook->url);
+        $this->assertNull($hook->secretKey);
+        $this->assertNull($hook->isActive);
+        $this->assertNull($hook->events);
+        $this->assertNull($hook->lastTriggeredAt);
+        $this->assertNull($hook->lastStatusCode);
+        $this->assertNull($hook->createdAt);
+        $this->assertSame([], $hook->raw);
+    }
+
+    public function test_webhook_info_tolerates_wrong_types(): void
+    {
+        $hook = WebhookInfo::fromArray([
+            'id' => ['x'], 'url' => ['x'], 'secret_key' => ['x'],
+            'events' => 'not-a-list', 'last_status_code' => ['x'], 'created_at' => ['x'],
+        ]);
+
+        $this->assertSame(0, $hook->id);
+        $this->assertSame('', $hook->url);
+        $this->assertNull($hook->secretKey);
+        $this->assertNull($hook->events);
+        $this->assertNull($hook->lastStatusCode);
+        $this->assertNull($hook->createdAt);
     }
 }

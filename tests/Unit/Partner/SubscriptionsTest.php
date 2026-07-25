@@ -151,6 +151,19 @@ final class SubscriptionsTest extends TestCase
         $this->assertNull($result->errorCodeEnum());
     }
 
+    public function test_unmodelled_failure_status_still_exposes_error_code_enum(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => 'declined', 'message' => 'insufficient_funds',
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertFalse($result->succeeded());
+        $this->assertFalse($result->isFailed());
+        $this->assertSame(WlcmErrorCode::InsufficientFunds, $result->errorCodeEnum());
+    }
+
     public function test_charge_success_has_no_error_code_enum(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([

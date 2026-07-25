@@ -30,18 +30,29 @@ final readonly class PartnerInfo
     /** @param PartnerInfoShape $data */
     public static function fromArray(array $data): self
     {
+        $id = $data['id'] ?? null;
+        $name = $data['name'] ?? null;
+        $companyName = $data['company_name'] ?? null;
+        $receiptItemName = $data['receipt_item_name'] ?? null;
+        $email = $data['email'] ?? null;
+        $phone = $data['phone'] ?? null;
+        $partnerType = $data['partner_type'] ?? null;
+        $status = $data['status'] ?? null;
+        $createdAt = $data['created_at'] ?? null;
+        $subPartners = $data['sub_partners'] ?? null;
+
         return new self(
-            id: (int) $data['id'],
-            name: (string) $data['name'],
-            companyName: isset($data['company_name']) ? (string) $data['company_name'] : null,
-            receiptItemName: isset($data['receipt_item_name']) ? (string) $data['receipt_item_name'] : null,
-            email: isset($data['email']) ? (string) $data['email'] : null,
-            phone: isset($data['phone']) ? (string) $data['phone'] : null,
-            partnerType: (string) ($data['partner_type'] ?? ''),
-            status: (string) ($data['status'] ?? ''),
+            id: is_numeric($id) ? (int) $id : 0,
+            name: is_scalar($name) ? (string) $name : '',
+            companyName: is_scalar($companyName) ? (string) $companyName : null,
+            receiptItemName: is_scalar($receiptItemName) ? (string) $receiptItemName : null,
+            email: is_scalar($email) ? (string) $email : null,
+            phone: is_scalar($phone) ? (string) $phone : null,
+            partnerType: is_scalar($partnerType) ? (string) $partnerType : '',
+            status: is_scalar($status) ? (string) $status : '',
             isActive: (bool) ($data['is_active'] ?? false),
-            createdAt: isset($data['created_at']) ? (string) $data['created_at'] : null,
-            subPartners: array_values((array) ($data['sub_partners'] ?? [])),
+            createdAt: is_scalar($createdAt) ? (string) $createdAt : null,
+            subPartners: array_values(array_filter(is_array($subPartners) ? $subPartners : [], is_array(...))),
             cancelPaymentEnabled: (bool) ($data['cancel_payment_enabled'] ?? false),
             showPhoneNumber: (bool) ($data['show_phone_number'] ?? false),
             raw: $data,

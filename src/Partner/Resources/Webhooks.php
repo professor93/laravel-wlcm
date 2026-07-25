@@ -15,9 +15,11 @@ final readonly class Webhooks
     public function all(): array
     {
         $result = $this->client->get('/partners/me/webhooks');
-        /** @var array<int, WebhookInfoShape> $result */
 
-        return array_map(WebhookInfo::fromArray(...), array_values($result));
+        $items = is_array($result['results'] ?? null) ? $result['results'] : $result;
+        /** @var array<int, WebhookInfoShape> $items */
+
+        return array_map(WebhookInfo::fromArray(...), array_values($items));
     }
 
     public function create(string $url, ?string $secretKey = null): WebhookInfo

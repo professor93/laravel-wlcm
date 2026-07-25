@@ -21,15 +21,24 @@ final readonly class SplitRecipient
     /** @param SplitRecipientShape $data */
     public static function fromArray(array $data): self
     {
+        $id = $data['id'] ?? null;
+        $recipientType = $data['recipient_type'] ?? null;
+        $recipientId = $data['recipient_id'] ?? null;
+        $splitType = $data['split_type'] ?? null;
+        $amount = $data['amount'] ?? null;
+        $percentValue = $data['percent_value'] ?? null;
+        $state = $data['state'] ?? null;
+        $stateText = $data['state_text'] ?? null;
+
         return new self(
-            id: (int) $data['id'],
-            recipientType: (string) $data['recipient_type'],
-            recipientId: (int) $data['recipient_id'],
-            splitType: (string) $data['split_type'],
-            amount: $data['amount'],
-            percentValue: $data['percent_value'] ?? null,
-            state: (int) ($data['state'] ?? 0),
-            stateText: (string) ($data['state_text'] ?? ''),
+            id: is_numeric($id) ? (int) $id : 0,
+            recipientType: is_scalar($recipientType) ? (string) $recipientType : '',
+            recipientId: is_numeric($recipientId) ? (int) $recipientId : 0,
+            splitType: is_scalar($splitType) ? (string) $splitType : '',
+            amount: is_int($amount) || is_float($amount) || is_string($amount) ? $amount : 0,
+            percentValue: is_int($percentValue) || is_float($percentValue) || is_string($percentValue) ? $percentValue : null,
+            state: is_numeric($state) ? (int) $state : 0,
+            stateText: is_scalar($stateText) ? (string) $stateText : '',
         );
     }
 }

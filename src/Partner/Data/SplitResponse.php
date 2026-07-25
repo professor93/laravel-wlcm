@@ -18,12 +18,21 @@ final readonly class SplitResponse
     /** @param SplitResponseShape $data */
     public static function fromArray(array $data): self
     {
+        $paymentId = $data['payment_id'] ?? null;
+        $splitType = $data['split_type'] ?? null;
+        $totalRecipients = $data['total_recipients'] ?? null;
+        $totalSplitAmount = $data['total_split_amount'] ?? null;
+        $splits = $data['splits'] ?? null;
+
         return new self(
-            paymentId: (int) $data['payment_id'],
-            splitType: (string) ($data['split_type'] ?? ''),
-            totalRecipients: (int) ($data['total_recipients'] ?? 0),
-            totalSplitAmount: $data['total_split_amount'] ?? 0,
-            splits: array_map(SplitRecipient::fromArray(...), array_values((array) ($data['splits'] ?? []))),
+            paymentId: is_numeric($paymentId) ? (int) $paymentId : 0,
+            splitType: is_scalar($splitType) ? (string) $splitType : '',
+            totalRecipients: is_numeric($totalRecipients) ? (int) $totalRecipients : 0,
+            totalSplitAmount: is_int($totalSplitAmount) || is_float($totalSplitAmount) || is_string($totalSplitAmount) ? $totalSplitAmount : 0,
+            splits: array_map(
+                SplitRecipient::fromArray(...),
+                array_values(array_filter(is_array($splits) ? $splits : [], is_array(...))),
+            ),
         );
     }
 }

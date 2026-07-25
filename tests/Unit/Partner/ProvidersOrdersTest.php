@@ -34,6 +34,21 @@ final class ProvidersOrdersTest extends TestCase
         Http::assertSent(fn (Request $r): bool => str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/payments/providers'));
     }
 
+    public function test_providers_list_unwraps_pagination(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'count' => 1, 'next' => null, 'previous' => null,
+            'results' => [
+                ['name' => 'payme', 'label' => 'Payme', 'sort_order' => 1, 'is_active' => true, 'icon' => null],
+            ],
+        ], 200)]);
+
+        $providers = Wlcm::partner()->providers()->all();
+
+        $this->assertCount(1, $providers);
+        $this->assertSame('payme', $providers[0]->name);
+    }
+
     public function test_order_status(): void
     {
         // Live sandbox response, verbatim: amount is a SUM float.

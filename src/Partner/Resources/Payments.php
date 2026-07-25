@@ -94,6 +94,10 @@ final readonly class Payments
             $type = $type instanceof SplitType ? $type->value : $type;
             $type = is_string($type) ? strtolower($type) : $type;
 
+            if (is_string($type)) {
+                $recipient['split_type'] = $type;
+            }
+
             if ($type !== SplitType::Fixed->value) {
                 return $recipient;
             }

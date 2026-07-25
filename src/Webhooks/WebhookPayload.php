@@ -9,31 +9,31 @@ use Uzbek\Wlcm\Support\Tiyin;
 
 final readonly class WebhookPayload
 {
+    public readonly int $state;
+
     public function __construct(
         public string $externalId,
         public string $orderId,
         public string $paymentId,
         public string $amount,
-        public int $state,
         public string $rawState,
         public string $provider,
         public string $timestamp,
         public string $signature,
         public ?string $connection = null,
-    ) {}
+    ) {
+        $this->state = (int) $rawState;
+    }
 
     /** @param WebhookPayloadShape $data */
     public static function fromArray(array $data, ?string $connection = null): self
     {
-        $rawState = (string) ($data['state'] ?? '');
-
         return new self(
             externalId: (string) ($data['external_id'] ?? ''),
             orderId: (string) ($data['order_id'] ?? ''),
             paymentId: (string) ($data['payment_id'] ?? ''),
             amount: (string) ($data['amount'] ?? '0'),
-            state: (int) $rawState,
-            rawState: $rawState,
+            rawState: (string) ($data['state'] ?? ''),
             provider: (string) ($data['provider'] ?? ''),
             timestamp: (string) ($data['timestamp'] ?? ''),
             signature: (string) ($data['signature'] ?? ''),

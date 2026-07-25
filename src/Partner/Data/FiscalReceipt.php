@@ -21,16 +21,25 @@ final readonly class FiscalReceipt
     /** @param FiscalReceiptShape $data */
     public static function fromArray(array $data): self
     {
+        $id = $data['id'] ?? null;
+        $paymentId = $data['payment_id'] ?? null;
+        $orderId = $data['order_id'] ?? null;
+        $fiscalSign = $data['fiscal_sign'] ?? null;
+        $fiscalNumber = $data['fiscal_number'] ?? null;
+        $qrCodeUrl = $data['qr_code_url'] ?? null;
+        $receiptType = $data['receipt_type'] ?? null;
+        $printedAt = $data['printed_at'] ?? null;
+
         return new self(
-            id: (int) $data['id'],
-            paymentId: (int) ($data['payment_id'] ?? 0),
-            orderId: (int) ($data['order_id'] ?? 0),
-            fiscalSign: (string) ($data['fiscal_sign'] ?? ''),
-            fiscalNumber: (string) ($data['fiscal_number'] ?? ''),
-            qrCodeUrl: (string) ($data['qr_code_url'] ?? ''),
-            receiptType: (string) ($data['receipt_type'] ?? ''),
+            id: is_numeric($id) ? (int) $id : 0,
+            paymentId: is_numeric($paymentId) ? (int) $paymentId : 0,
+            orderId: is_numeric($orderId) ? (int) $orderId : 0,
+            fiscalSign: is_scalar($fiscalSign) ? (string) $fiscalSign : '',
+            fiscalNumber: is_scalar($fiscalNumber) ? (string) $fiscalNumber : '',
+            qrCodeUrl: is_scalar($qrCodeUrl) ? (string) $qrCodeUrl : '',
+            receiptType: is_scalar($receiptType) ? (string) $receiptType : '',
             isRefund: (bool) ($data['is_refund'] ?? false),
-            printedAt: isset($data['printed_at']) ? (string) $data['printed_at'] : null,
+            printedAt: is_scalar($printedAt) ? (string) $printedAt : null,
         );
     }
 }

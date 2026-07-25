@@ -25,15 +25,23 @@ final readonly class WebhookInfo
     /** @param WebhookInfoShape $data */
     public static function fromArray(array $data): self
     {
+        $id = $data['id'] ?? null;
+        $url = $data['url'] ?? null;
+        $secretKey = $data['secret_key'] ?? null;
+        $events = $data['events'] ?? null;
+        $lastTriggeredAt = $data['last_triggered_at'] ?? null;
+        $lastStatusCode = $data['last_status_code'] ?? null;
+        $createdAt = $data['created_at'] ?? null;
+
         return new self(
-            id: (int) ($data['id'] ?? 0),
-            url: (string) ($data['url'] ?? ''),
-            secretKey: isset($data['secret_key']) ? (string) $data['secret_key'] : null,
+            id: is_numeric($id) ? (int) $id : 0,
+            url: is_scalar($url) ? (string) $url : '',
+            secretKey: is_scalar($secretKey) ? (string) $secretKey : null,
             isActive: isset($data['is_active']) ? (bool) $data['is_active'] : null,
-            events: isset($data['events']) ? array_values($data['events']) : null,
-            lastTriggeredAt: isset($data['last_triggered_at']) ? (string) $data['last_triggered_at'] : null,
-            lastStatusCode: isset($data['last_status_code']) ? (int) $data['last_status_code'] : null,
-            createdAt: isset($data['created_at']) ? (string) $data['created_at'] : null,
+            events: is_array($events) ? array_values($events) : null,
+            lastTriggeredAt: is_scalar($lastTriggeredAt) ? (string) $lastTriggeredAt : null,
+            lastStatusCode: is_numeric($lastStatusCode) ? (int) $lastStatusCode : null,
+            createdAt: is_scalar($createdAt) ? (string) $createdAt : null,
             raw: $data,
         );
     }

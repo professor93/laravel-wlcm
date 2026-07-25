@@ -58,4 +58,24 @@ final class WebhookPayloadTest extends TestCase
         $this->assertSame(10000000, $p->amountTiyin());
         $this->assertTrue($p->isSuccess());
     }
+
+    public function test_hand_built_payload_derives_state_from_raw_state(): void
+    {
+        $p = new WebhookPayload(
+            externalId: 'ORD-1',
+            orderId: '1254',
+            paymentId: '7788',
+            amount: '1200.50',
+            rawState: '2',
+            provider: 'payme',
+            timestamp: '2026-07-24 12:00:00',
+            signature: 'sig',
+        );
+
+        $this->assertSame(2, $p->state);
+        $this->assertSame('2', $p->rawState);
+        $this->assertSame(PaymentState::Success, $p->stateEnum());
+        $this->assertTrue($p->isSuccess());
+        $this->assertSame('1254:7788:2:2026-07-24 12:00:00', $p->signatureBase());
+    }
 }

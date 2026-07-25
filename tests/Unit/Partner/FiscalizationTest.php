@@ -7,6 +7,7 @@ namespace Uzbek\Wlcm\Tests\Unit\Partner;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\FiscalReceipt;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class FiscalizationTest extends TestCase
@@ -65,5 +66,29 @@ final class FiscalizationTest extends TestCase
         $r = Wlcm::partner()->fiscalization()->refund(externalId: 'ORD-1');
 
         $this->assertSame(777, $r->fiscalId);
+    }
+
+    public function test_fiscal_receipt_tolerates_empty_server_shape(): void
+    {
+        $r = FiscalReceipt::fromArray([]);
+
+        $this->assertSame(0, $r->id);
+        $this->assertSame(0, $r->paymentId);
+        $this->assertSame(0, $r->orderId);
+        $this->assertSame('', $r->fiscalSign);
+        $this->assertSame('', $r->fiscalNumber);
+        $this->assertSame('', $r->qrCodeUrl);
+        $this->assertSame('', $r->receiptType);
+        $this->assertFalse($r->isRefund);
+        $this->assertNull($r->printedAt);
+    }
+
+    public function test_fiscal_receipt_tolerates_wrong_types(): void
+    {
+        $r = FiscalReceipt::fromArray(['id' => ['x'], 'fiscal_sign' => ['x'], 'printed_at' => ['x']]);
+
+        $this->assertSame(0, $r->id);
+        $this->assertSame('', $r->fiscalSign);
+        $this->assertNull($r->printedAt);
     }
 }
