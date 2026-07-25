@@ -18,8 +18,13 @@ use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionStore;
+use Uzbek\Wlcm\Storage\WebhookOutcome;
 use Uzbek\Wlcm\Tests\TestCase;
+use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
+use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class StorageWiringTest extends TestCase
 {
@@ -359,6 +364,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_log_store_is_swappable(): void
     {
+        // Swap BEFORE the first Wlcm:: call — the manager caches the connection.
         $spy = new class implements LogStore
         {
             /** @var list<string> */
@@ -381,6 +387,50 @@ final class StorageWiringTest extends TestCase
 
         $this->assertSame(['ok'], $spy->calls);
         $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_transaction_store_is_swappable(): void
+    {
+        $spy = new class implements TransactionStore
+        {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            {
+                $this->calls[] = 'applyWebhook';
+
+                return WebhookOutcome::Fresh;
+            }
+
+            public function markProcessed(WebhookPayload $payload): void
+            {
+                $this->calls[] = 'markProcessed';
+            }
+
+            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            {
+                $this->calls[] = 'claimSubscription';
+
+                return WebhookOutcome::Fresh;
+            }
+
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            {
+                $this->calls[] = 'markSubscriptionProcessed';
+            }
+
+            public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
+            {
+                $this->calls[] = 'recordCheckout';
+            }
+        };
+        $this->app->instance(TransactionStore::class, $spy);
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $this->assertSame(['applyWebhook', 'markProcessed'], $spy->calls);
+        $this->assertSame(0, WlcmTransaction::query()->count());
     }
 
     public function test_swapped_log_store_receives_masked_bodies(): void

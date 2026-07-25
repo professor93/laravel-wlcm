@@ -18,7 +18,7 @@ use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\Masker;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 
 final readonly class WebhookController
@@ -27,7 +27,7 @@ final readonly class WebhookController
         private Repository $config,
         private Container $container,
         private LogStore $logStore,
-        private TransactionRecorder $transactions,
+        private TransactionStore $transactions,
     ) {}
 
     public function __invoke(Request $request): JsonResponse

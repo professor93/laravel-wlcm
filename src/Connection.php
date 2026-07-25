@@ -7,7 +7,7 @@ namespace Uzbek\Wlcm;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Storage\LogStore;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 
 /**
  * @phpstan-import-type PartnerClientConfigShape from PartnerClient
@@ -22,7 +22,7 @@ final class Connection
         public readonly string $name,
         private readonly array $config,
         private readonly LogStore $logStore,
-        private readonly TransactionRecorder $transactions,
+        private readonly TransactionStore $transactions,
     ) {}
 
     public function partner(): PartnerClient

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Exceptions\ConnectionException;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\Masker;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 
 /**
  * @phpstan-type PartnerClientConfigShape array{base_url: WlcmJsonScalar, api_key: WlcmJsonScalar, api_secret: WlcmJsonScalar, split_amount_unit?: WlcmJsonScalar}
@@ -29,7 +29,7 @@ final class PartnerClient
         protected readonly array $config,
         protected readonly array $http,
         protected readonly LogStore $logStore,
-        protected readonly TransactionRecorder $transactions,
+        protected readonly TransactionStore $transactions,
     ) {}
 
     /**
@@ -105,12 +105,7 @@ final class PartnerClient
         return (string) ($this->config['split_amount_unit'] ?? 'sum');
     }
 
-    public function logStore(): LogStore
-    {
-        return $this->logStore;
-    }
-
-    public function transactions(): TransactionRecorder
+    public function transactions(): TransactionStore
     {
         return $this->transactions;
     }

@@ -13,7 +13,7 @@ use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
-final class TransactionRecorder
+final class TransactionRecorder implements TransactionStore
 {
     private function enabled(): bool
     {

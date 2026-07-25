@@ -13,6 +13,7 @@ use Uzbek\Wlcm\Storage\FileLogStore;
 use Uzbek\Wlcm\Storage\LogChannelLogStore;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 
 final class WlcmServiceProvider extends ServiceProvider
 {
@@ -30,14 +31,14 @@ final class WlcmServiceProvider extends ServiceProvider
             };
         });
 
-        $this->app->singleton(TransactionRecorder::class);
+        $this->app->singleton(TransactionStore::class, TransactionRecorder::class);
 
         $this->app->singleton(
             WlcmManager::class,
             fn (Application $app): WlcmManager => new WlcmManager(
                 $app->make(Repository::class),
                 $app->make(LogStore::class),
-                $app->make(TransactionRecorder::class),
+                $app->make(TransactionStore::class),
             ),
         );
     }

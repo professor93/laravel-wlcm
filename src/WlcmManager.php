@@ -8,7 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Storage\LogStore;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
+use Uzbek\Wlcm\Storage\TransactionStore;
 
 final class WlcmManager
 {
@@ -18,7 +18,7 @@ final class WlcmManager
     public function __construct(
         private readonly Repository $config,
         private readonly LogStore $logStore,
-        private readonly TransactionRecorder $transactions,
+        private readonly TransactionStore $transactions,
     ) {}
 
     public function connection(?string $name = null): Connection
