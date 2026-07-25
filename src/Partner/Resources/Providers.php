@@ -16,9 +16,10 @@ final readonly class Providers
     {
         $result = $this->client->get('/payments/providers');
 
-        $items = is_array($result['results'] ?? null) ? $result['results'] : $result;
-        /** @var array<int, PaymentProviderInfoShape> $items */
+        $rows = is_array($result['results'] ?? null) ? $result['results'] : $result;
+        $items = array_values(array_filter($rows, is_array(...)));
+        /** @var list<PaymentProviderInfoShape> $items */
 
-        return array_map(PaymentProviderInfo::fromArray(...), array_values($items));
+        return array_map(PaymentProviderInfo::fromArray(...), $items);
     }
 }

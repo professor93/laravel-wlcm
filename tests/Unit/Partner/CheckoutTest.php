@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
+use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -68,6 +69,22 @@ final class CheckoutTest extends TestCase
         $c = Wlcm::partner()->payments()->confirmOtp($r->transactionId, $r->cid, '111111');
         $this->assertTrue($c->success);
         $this->assertTrue($c->alreadyPaid());
+    }
+
+    public function test_non_positive_amount_throws_before_sending(): void
+    {
+        Http::fake();
+
+        foreach ([0, -100] as $amountTiyin) {
+            try {
+                Wlcm::partner()->checkout()->create(amountTiyin: $amountTiyin, returnUrl: 'https://x.test');
+                $this->fail("amount {$amountTiyin} must be rejected");
+            } catch (InvalidAmountException $e) {
+                $this->assertStringContainsString((string) $amountTiyin, $e->getMessage());
+            }
+        }
+
+        Http::assertNothingSent();
     }
 
     public function test_missing_state_is_null_not_created(): void

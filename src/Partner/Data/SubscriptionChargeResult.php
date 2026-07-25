@@ -20,10 +20,13 @@ final readonly class SubscriptionChargeResult
     /** @param SubscriptionChargeResultShape $data */
     public static function fromArray(array $data): self
     {
+        $status = $data['status'] ?? null;
+        $message = $data['message'] ?? null;
+
         return new self(
-            status: (string) ($data['status'] ?? ''),
+            status: is_scalar($status) ? (string) $status : '',
             paymentId: isset($data['payment_id']) ? (int) $data['payment_id'] : null,
-            message: isset($data['message']) ? (string) $data['message'] : null,
+            message: is_scalar($message) ? (string) $message : null,
             raw: $data,
         );
     }

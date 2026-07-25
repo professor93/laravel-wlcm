@@ -50,7 +50,7 @@ final class WlcmFake
                 'created_at' => '2026-01-01T00:00:00Z', 'sub_partners' => [],
                 'cancel_payment_enabled' => false, 'show_phone_number' => false,
             ]),
-            '*' => Http::response(['error' => 'wlcm stub missing for this endpoint'], 500),
+            '*' => Http::response(['detail' => 'wlcm stub missing for this endpoint'], 500),
         ]);
     }
 
@@ -58,8 +58,9 @@ final class WlcmFake
     // MissingConfigurationException before a stub is ever consulted.
     private function fillMissingCredentials(): void
     {
-        $default = Config::get('wlcm.default');
-        $connection = is_string($default) && $default !== '' ? $default : 'main';
+        $default = Config::get('wlcm.default', 'main');
+        /** @var WlcmJsonScalar $default */
+        $connection = (string) $default;
 
         foreach (self::DUMMY_CREDENTIALS as $key => $value) {
             $path = "wlcm.connections.{$connection}.partner.{$key}";

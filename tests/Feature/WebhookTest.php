@@ -62,6 +62,16 @@ final class WebhookTest extends TestCase
         $this->postJson('/wlcm/webhook', $data)->assertForbidden();
     }
 
+    public function test_array_typed_optional_field_is_refused_not_fatal(): void
+    {
+        $data = $this->payload();
+        $data['external_id'] = ['ORD-1'];
+        $data['provider'] = ['payme'];
+        $data['signature'] = str_repeat('0', 64);
+
+        $this->postJson('/wlcm/webhook', $data)->assertForbidden();
+    }
+
     public function test_config_handler_invoked(): void
     {
         $handler = new class implements WlcmWebhookHandler
@@ -232,6 +242,18 @@ final class WebhookTest extends TestCase
 
         Event::assertDispatched(PaymentSucceeded::class, fn (PaymentSucceeded $e) => $e->payload->paymentId === '172'
             && $e->payload->amountTiyin() === 300000);
+    }
+
+    public function test_subscription_array_typed_optional_field_is_refused_not_fatal(): void
+    {
+        $data = $this->subscriptionPayload();
+        $data['external_user_id'] = ['user-1001'];
+        $data['subscription_id'] = ['8'];
+        $data['amount'] = ['49900.00'];
+        $data['status'] = ['active'];
+        $data['signature'] = str_repeat('0', 64);
+
+        $this->postJson('/wlcm/webhook', $data)->assertForbidden();
     }
 
     public function test_subscription_invalid_signature_rejected(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Partner\Resources;
 
 use Uzbek\Wlcm\Enums\PaymentProvider;
+use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
@@ -20,6 +21,10 @@ final readonly class Checkout
         ?string $cardNumber = null,
         ?string $expireDate = null,
     ): CheckoutResponse {
+        if ($amountTiyin <= 0) {
+            throw new InvalidAmountException("Checkout amount must be positive tiyin, got {$amountTiyin}");
+        }
+
         $payload = array_filter([
             'amount' => $amountTiyin,
             'external_id' => $externalId,

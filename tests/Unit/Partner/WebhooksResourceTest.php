@@ -37,6 +37,35 @@ final class WebhooksResourceTest extends TestCase
         $this->assertTrue($hooks[0]->isActive);
     }
 
+    public function test_all_survives_a_null_results_envelope(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'count' => 0, 'next' => null, 'previous' => null, 'results' => null,
+        ], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->webhooks()->all());
+    }
+
+    public function test_all_survives_a_detail_string_body(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found.'], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->webhooks()->all());
+    }
+
+    public function test_all_drops_non_array_rows(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'oops',
+            ['id' => 7, 'url' => 'https://app.test/hook', 'is_active' => true],
+        ], 200)]);
+
+        $hooks = Wlcm::partner()->webhooks()->all();
+
+        $this->assertCount(1, $hooks);
+        $this->assertSame(7, $hooks[0]->id);
+    }
+
     public function test_create_sends_url_and_secret(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -110,6 +139,35 @@ final class WebhooksResourceTest extends TestCase
     public function test_events_history_tolerates_bare_list(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
+            ['id' => 1, 'event_type' => 'payment.success'],
+        ], 200)]);
+
+        $events = Wlcm::partner()->webhooks()->events(7);
+
+        $this->assertCount(1, $events);
+        $this->assertSame('payment.success', $events[0]['event_type']);
+    }
+
+    public function test_events_history_survives_a_null_results_envelope(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'count' => 0, 'next' => null, 'previous' => null, 'results' => null,
+        ], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->webhooks()->events(7));
+    }
+
+    public function test_events_history_survives_a_detail_string_body(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found.'], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->webhooks()->events(7));
+    }
+
+    public function test_events_history_drops_non_array_rows(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'oops',
             ['id' => 1, 'event_type' => 'payment.success'],
         ], 200)]);
 

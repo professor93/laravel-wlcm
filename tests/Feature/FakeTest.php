@@ -41,8 +41,25 @@ final class FakeTest extends TestCase
 
         Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test');
 
+        $this->assertSame('https://api.wlcm.test/api/v1', config('wlcm.connections.main.partner.base_url'));
         $this->assertSame('pk_test_key', config('wlcm.connections.main.partner.api_key'));
+        $this->assertSame('sk_test_secret', config('wlcm.connections.main.partner.api_secret'));
+        $this->assertSame('whsec_test', config('wlcm.connections.main.partner.webhook_secret'));
         $fake->assertSent(fn (Request $request): bool => $request->url() === 'https://api.wlcm.test/api/v1/integrations/checkout');
+    }
+
+    public function test_fake_fills_credentials_for_a_non_string_default_connection(): void
+    {
+        config()->set('wlcm.default', 0);
+        config()->set('wlcm.connections.0.partner', [
+            'base_url' => null, 'api_key' => null, 'api_secret' => null, 'webhook_secret' => null,
+        ]);
+
+        $fake = Wlcm::fake();
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test');
+
+        $fake->assertSent(fn (Request $request): bool => $request->url() === 'https://wlcm.fake/api/v1/integrations/checkout');
     }
 
     public function test_every_default_stub_is_reachable(): void
@@ -63,6 +80,7 @@ final class FakeTest extends TestCase
         } catch (ServerException $e) {
             $this->assertSame(500, $e->responseStatus);
             $this->assertStringContainsString('/subscriptions/55/charge', (string) $e->requestPath);
+            $this->assertStringContainsString('wlcm stub missing', $e->getMessage());
         }
     }
 

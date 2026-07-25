@@ -28,13 +28,16 @@ final readonly class WebhookPayload
     /** @param WebhookPayloadShape $data */
     public static function fromArray(array $data, ?string $connection = null): self
     {
+        $externalId = $data['external_id'] ?? null;
+        $provider = $data['provider'] ?? null;
+
         return new self(
-            externalId: (string) ($data['external_id'] ?? ''),
+            externalId: is_scalar($externalId) ? (string) $externalId : '',
             orderId: (string) ($data['order_id'] ?? ''),
             paymentId: (string) ($data['payment_id'] ?? ''),
             amount: (string) ($data['amount'] ?? '0'),
             rawState: (string) ($data['state'] ?? ''),
-            provider: (string) ($data['provider'] ?? ''),
+            provider: is_scalar($provider) ? (string) $provider : '',
             timestamp: (string) ($data['timestamp'] ?? ''),
             signature: (string) ($data['signature'] ?? ''),
             connection: $connection,

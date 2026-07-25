@@ -16,10 +16,11 @@ final readonly class Webhooks
     {
         $result = $this->client->get('/partners/me/webhooks');
 
-        $items = is_array($result['results'] ?? null) ? $result['results'] : $result;
-        /** @var array<int, WebhookInfoShape> $items */
+        $rows = is_array($result['results'] ?? null) ? $result['results'] : $result;
+        $items = array_values(array_filter($rows, is_array(...)));
+        /** @var list<WebhookInfoShape> $items */
 
-        return array_map(WebhookInfo::fromArray(...), array_values($items));
+        return array_map(WebhookInfo::fromArray(...), $items);
     }
 
     public function create(string $url, ?string $secretKey = null): WebhookInfo
@@ -60,9 +61,10 @@ final readonly class Webhooks
         $result = $this->client->get("/partners/me/webhooks/{$webhookId}/events");
 
         // Live history is paginated {count,next,previous,results:[...]}; tolerate a bare list.
-        $items = is_array($result['results'] ?? null) ? $result['results'] : $result;
-        /** @var array<int, array<string, mixed>> $items */
+        $rows = is_array($result['results'] ?? null) ? $result['results'] : $result;
+        $items = array_values(array_filter($rows, is_array(...)));
+        /** @var list<array<string, mixed>> $items */
 
-        return array_values($items);
+        return $items;
     }
 }

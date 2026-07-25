@@ -33,7 +33,7 @@ final class ErrorMapper
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    responseBody: mb_strcut($response->body(), 0, 500),
+                    responseBody: mb_strcut($response->body(), 0, 500, 'UTF-8'),
                 );
             }
 
@@ -81,7 +81,7 @@ final class ErrorMapper
             is_array($body) => Masker::mask(self::maskDetailInputs($body)),
             // Cut on a codepoint boundary: a half character makes json_encode of the whole
             // exception context fail.
-            is_string($body) => mb_strcut($body, 0, 500),
+            is_string($body) => mb_strcut($body, 0, 500, 'UTF-8'),
             default => $body,
         };
 

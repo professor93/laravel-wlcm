@@ -49,6 +49,35 @@ final class ProvidersOrdersTest extends TestCase
         $this->assertSame('payme', $providers[0]->name);
     }
 
+    public function test_providers_list_survives_a_null_results_envelope(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'count' => 0, 'next' => null, 'previous' => null, 'results' => null,
+        ], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->providers()->all());
+    }
+
+    public function test_providers_list_survives_a_detail_string_body(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found.'], 200)]);
+
+        $this->assertSame([], Wlcm::partner()->providers()->all());
+    }
+
+    public function test_providers_list_drops_non_array_rows(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'oops',
+            ['name' => 'payme', 'label' => 'Payme', 'sort_order' => 1, 'is_active' => true, 'icon' => null],
+        ], 200)]);
+
+        $providers = Wlcm::partner()->providers()->all();
+
+        $this->assertCount(1, $providers);
+        $this->assertSame('payme', $providers[0]->name);
+    }
+
     public function test_order_status(): void
     {
         // Live sandbox response, verbatim: amount is a SUM float.

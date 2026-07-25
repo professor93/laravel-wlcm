@@ -23,13 +23,18 @@ final readonly class SubscriptionWebhookPayload
     /** @param SubscriptionWebhookPayloadShape $data */
     public static function fromArray(array $data, ?string $connection = null): self
     {
+        $externalUserId = $data['external_user_id'] ?? null;
+        $subscriptionId = $data['subscription_id'] ?? null;
+        $amount = $data['amount'] ?? null;
+        $status = $data['status'] ?? null;
+
         return new self(
             event: (string) ($data['event'] ?? ''),
             externalOrderId: (string) ($data['external_order_id'] ?? ''),
-            externalUserId: (string) ($data['external_user_id'] ?? ''),
-            subscriptionId: (int) ($data['subscription_id'] ?? 0),
-            amount: (string) ($data['amount'] ?? '0'),
-            status: (string) ($data['status'] ?? ''),
+            externalUserId: is_scalar($externalUserId) ? (string) $externalUserId : '',
+            subscriptionId: is_numeric($subscriptionId) ? (int) $subscriptionId : 0,
+            amount: is_scalar($amount) ? (string) $amount : '0',
+            status: is_scalar($status) ? (string) $status : '',
             timestamp: (string) ($data['timestamp'] ?? ''),
             signature: (string) ($data['signature'] ?? ''),
             connection: $connection,

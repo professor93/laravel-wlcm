@@ -176,6 +176,20 @@ final class SubscriptionsTest extends TestCase
         $this->assertNull($result->errorCodeEnum());
     }
 
+    public function test_charge_result_tolerates_array_typed_status_and_message(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'status' => ['failed'], 'message' => ['insufficient_funds'],
+        ], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertSame('', $result->status);
+        $this->assertNull($result->message);
+        $this->assertFalse($result->succeeded());
+        $this->assertNull($result->errorCodeEnum());
+    }
+
     public function test_cancel_returns_full_subscription(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(
