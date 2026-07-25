@@ -10,6 +10,7 @@ use Throwable;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Support\ConfigToggle;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
@@ -17,7 +18,7 @@ final class TransactionRecorder implements TransactionStore
 {
     private function enabled(): bool
     {
-        return (bool) config('wlcm.storage.transactions', false);
+        return ConfigToggle::enabled(config('wlcm.storage.transactions', false), 'wlcm.storage.transactions');
     }
 
     /** @param array<string, mixed> $requestPayload */

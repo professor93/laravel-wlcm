@@ -119,7 +119,7 @@ Item amounts passthrough — SDK never converts them. Docs say tiyin; caller sen
 
 ## Webhooks
 
-Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list. Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar *required* field = 422 — payments need `order_id`, `payment_id`, `amount`, `state`, `timestamp`; subscriptions need `external_order_id`, `event`, `timestamp`. Optional fields are never checked and coerce to a typed default — `''` on payments, `''`/`0`/`'0'` on subscriptions; `signature` is required too, but checked on its own rather than through either list. Secret absent from config = `MissingConfigurationException`. Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
+Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`), unless `wlcm.webhook.enabled` says otherwise: `true`/`'1'`/`1` registers it, `false`/`'0'`/`0`/`null`/`''` does not, and anything else — `'off'`, `'no'`, `'disabled'` — throws `MissingConfigurationException` at boot rather than leave a public endpoint serving on a value the package cannot read. The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list. Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar *required* field = 422 — payments need `order_id`, `payment_id`, `amount`, `state`, `timestamp`; subscriptions need `external_order_id`, `event`, `timestamp`. Optional fields are never checked and coerce to a typed default — `''` on payments, `''`/`0`/`'0'` on subscriptions; `signature` is required too, but checked on its own rather than through either list. Secret absent from config = `MissingConfigurationException`. Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
 
 > **`amount` and `external_id` are in neither base.** They arrive unauthenticated — a valid signature says nothing about them. Never fulfill on the webhook's amount; call `Wlcm::partner()->orders()->status($orderId)` and settle from that.
 
@@ -158,7 +158,7 @@ php artisan migrate
 ],
 ```
 
-Both default `false` — nothing is recorded unless opted in. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies; `wlcm_transactions` correlation keys stay raw.
+Both default `false` — nothing is recorded unless opted in. `transactions` is a strict toggle: `true`/`'1'`/`1` on, `false`/`'0'`/`0`/`null`/`''` off, anything else throws `MissingConfigurationException` on the first recorded call — `'off'` is a typo, not an off switch. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies; `wlcm_transactions` correlation keys stay raw.
 
 | `logs` | Where entries go | Env |
 | --- | --- | --- |

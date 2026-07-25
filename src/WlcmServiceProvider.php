@@ -14,6 +14,7 @@ use Uzbek\Wlcm\Storage\LogChannelLogStore;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 use Uzbek\Wlcm\Storage\TransactionStore;
+use Uzbek\Wlcm\Support\ConfigToggle;
 
 final class WlcmServiceProvider extends ServiceProvider
 {
@@ -53,7 +54,11 @@ final class WlcmServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations' => database_path('migrations'),
         ], 'wlcm-migrations');
 
-        if ((bool) $this->app->make(Repository::class)->get('wlcm.webhook.enabled', true)) {
+        $enabled = $this->app->make(Repository::class)->get('wlcm.webhook.enabled', true);
+
+        // Unreadable value stops the boot: a public route left serving by a typo
+        // outlives any log line, and a dead app is the one failure nobody misses.
+        if (ConfigToggle::enabled($enabled, 'wlcm.webhook.enabled')) {
             $this->loadRoutesFrom(__DIR__.'/../routes/webhook.php');
         }
     }
