@@ -66,4 +66,46 @@ final class Masker
 
         return $out;
     }
+
+    public static function scrubPans(string $text): string
+    {
+        // A run failing Luhn is left whole, never hunted for a passing substring: false-positive control beats exhaustiveness.
+        $scrubbed = preg_replace_callback(
+            '/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/',
+            static function (array $match): string {
+                $run = $match[0];
+                $digits = preg_replace('/\D/', '', $run) ?? $run;
+
+                return self::luhn($digits)
+                    ? substr($digits, 0, 6).'***'.substr($digits, -4)
+                    : $run;
+            },
+            $text,
+        );
+
+        return $scrubbed ?? $text;
+    }
+
+    private static function luhn(string $digits): bool
+    {
+        $sum = 0;
+        $double = false;
+
+        for ($i = strlen($digits) - 1; $i >= 0; $i--) {
+            $digit = (int) $digits[$i];
+
+            if ($double) {
+                $digit *= 2;
+
+                if ($digit > 9) {
+                    $digit -= 9;
+                }
+            }
+
+            $sum += $digit;
+            $double = ! $double;
+        }
+
+        return $sum % 10 === 0;
+    }
 }

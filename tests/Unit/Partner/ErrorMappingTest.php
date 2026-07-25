@@ -519,6 +519,76 @@ final class ErrorMappingTest extends TestCase
         Wlcm::partner()->orders()->status(410);
     }
 
+    public function test_pan_in_detail_prose_is_scrubbed_from_message_and_errors(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'value_error',
+                    'loc' => ['body', 'card_number'],
+                    'msg' => 'Value error, card 8600123456789012 is blocked',
+                    'input' => '8600123456789012',
+                ],
+            ],
+        ], 422)]);
+
+        try {
+            Wlcm::partner()->checkout()->create(
+                amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
+                cardNumber: '8600123456789012', expireDate: '3003',
+            );
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame('body.card_number: Value error, card 860012***9012 is blocked', $e->getMessage());
+            $this->assertStringNotContainsString('8600123456789012', $e->getMessage());
+            $this->assertSame(
+                ['card_number' => ['Value error, card 860012***9012 is blocked']],
+                $e->errors(),
+            );
+        }
+    }
+
+    public function test_pan_in_legacy_errors_map_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => 'Validation failed',
+            'errors' => ['card_number' => ['Card 8600 1234 5678 9012 is expired']],
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->post('/integrations/checkout', ['amount' => 1000]);
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['card_number' => ['Card 860012***9012 is expired']], $e->errors());
+        }
+    }
+
+    public function test_pan_in_string_body_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('upstream refused card 8600123456789012', 502)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertSame('upstream refused card 860012***9012', $e->responseBody);
+        }
+    }
+
+    public function test_non_luhn_digit_run_in_message_survives_verbatim(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['detail' => 'Order 1234567890123456 already settled'], 409,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->cancel(172);
+            $this->fail('expected ConflictException');
+        } catch (ConflictException $e) {
+            $this->assertSame('Order 1234567890123456 already settled', $e->getMessage());
+        }
+    }
+
     public function test_successful_empty_object_body_still_returns_array(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response('{}', 200)]);

@@ -75,13 +75,17 @@ final class ErrorMapper
             }
         }
 
-        // Derivation above reads the RAW body on purpose; only responseBody is scrubbed —
-        // message/errors still carry server prose. FastAPI echoes the submitted payload there.
+        $message = Masker::scrubPans($message);
+        /** @var array<string, list<string>> $errors */
+        $errors = self::scrubPanProse($errors);
+
+        // Derivation above reads the RAW body on purpose; only responseBody is key-masked —
+        // message/errors keep server prose minus PANs. FastAPI echoes the submitted payload there.
         $exposedBody = match (true) {
             is_array($body) => Masker::mask(self::maskDetailInputs($body)),
             // Cut on a codepoint boundary: a half character makes json_encode of the whole
             // exception context fail.
-            is_string($body) => mb_strcut($body, 0, 500, 'UTF-8'),
+            is_string($body) => Masker::scrubPans(mb_strcut($body, 0, 500, 'UTF-8')),
             default => $body,
         };
 
@@ -145,6 +149,23 @@ final class ErrorMapper
         $body['detail'] = $detail;
 
         return $body;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $errors
+     * @return array<array-key, mixed>
+     */
+    private static function scrubPanProse(array $errors): array
+    {
+        foreach ($errors as $key => $value) {
+            $errors[$key] = match (true) {
+                is_string($value) => Masker::scrubPans($value),
+                is_array($value) => self::scrubPanProse($value),
+                default => $value,
+            };
+        }
+
+        return $errors;
     }
 
     /**

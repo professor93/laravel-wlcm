@@ -90,4 +90,61 @@ final class MaskerTest extends TestCase
         $out = Masker::mask([' secret_key' => 'w', 'amount' => 5]);
         $this->assertSame(['amount' => 5], $out);
     }
+
+    public function test_luhn_valid_pan_in_prose_scrubbed(): void
+    {
+        $this->assertSame(
+            'Card 860012***9012 is blocked',
+            Masker::scrubPans('Card 8600123456789012 is blocked'),
+        );
+    }
+
+    public function test_luhn_invalid_run_untouched(): void
+    {
+        $this->assertSame(
+            'Card 8600123412341234 is blocked',
+            Masker::scrubPans('Card 8600123412341234 is blocked'),
+        );
+    }
+
+    public function test_separated_pan_scrubbed(): void
+    {
+        $this->assertSame('to 860012***9012.', Masker::scrubPans('to 8600 1234 5678 9012.'));
+        $this->assertSame('to 860012***9012.', Masker::scrubPans('to 8600-1234-5678-9012.'));
+    }
+
+    public function test_runs_shorter_than_13_or_longer_than_19_untouched(): void
+    {
+        $this->assertSame('ref 123456789015 ok', Masker::scrubPans('ref 123456789015 ok'));
+        $this->assertSame('ref 86001234567890123459 ok', Masker::scrubPans('ref 86001234567890123459 ok'));
+    }
+
+    public function test_boundary_lengths_13_and_19_scrubbed(): void
+    {
+        $this->assertSame('a 123456***0128 b', Masker::scrubPans('a 1234567890128 b'));
+        $this->assertSame('a 860012***2346 b', Masker::scrubPans('a 8600123456789012346 b'));
+    }
+
+    public function test_luhn_invalid_run_containing_valid_substring_untouched(): void
+    {
+        $this->assertSame('id 8600123456789012000', Masker::scrubPans('id 8600123456789012000'));
+    }
+
+    public function test_multiple_pans_both_scrubbed(): void
+    {
+        $this->assertSame(
+            '860012***9012 and 986099***9994 differ',
+            Masker::scrubPans('8600123456789012 and 9860991234569994 differ'),
+        );
+    }
+
+    public function test_text_without_digits_is_identity(): void
+    {
+        $this->assertSame('Field required', Masker::scrubPans('Field required'));
+    }
+
+    public function test_empty_string_is_identity(): void
+    {
+        $this->assertSame('', Masker::scrubPans(''));
+    }
 }
