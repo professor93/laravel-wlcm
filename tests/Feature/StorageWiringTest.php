@@ -763,8 +763,8 @@ final class StorageWiringTest extends TestCase
             '4111111111111111',
             json_encode($log->getAttributes(), JSON_THROW_ON_ERROR),
         );
-        // Correlation keys taken from response, not log surface.
-        $this->assertSame('order for card 4111111111111111', WlcmTransaction::sole()->external_id);
+        // Both audit tables scrub their correlation keys, so they still agree byte for byte.
+        $this->assertSame('order for card 411111***1111', WlcmTransaction::sole()->external_id);
     }
 
     public function test_ordinary_echoed_ids_survive_the_log_column_scrub(): void
@@ -843,7 +843,7 @@ final class StorageWiringTest extends TestCase
         $log = WlcmLog::sole();
         $this->assertIsArray($log->request_body);
         $this->assertSame('ORD-1 via card 860012***9012', $log->request_body['external_id']);
-        // Correlation keys taken from payload, not log surface.
-        $this->assertSame('ORD-1 via card 8600123456789012', WlcmTransaction::sole()->external_id);
+        // Payload feeds the transaction row; it gets the same scrub the log surface got.
+        $this->assertSame('ORD-1 via card 860012***9012', WlcmTransaction::sole()->external_id);
     }
 }
