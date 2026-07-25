@@ -175,13 +175,28 @@ php artisan migrate
 
 ```php
 'storage' => [
-    'logs' => true,         // wlcm_logs: every outgoing request/response + webhook deliveries
+    'logs' => 'database',   // every outgoing request/response + webhook delivery
+    'logs_channel' => null, // 'log' driver only; null = the app's default channel
+    'logs_path' => null,    // 'file' driver only; null = storage_path('logs/wlcm.jsonl')
     'transactions' => true, // wlcm_transactions: checkout/payment state, updated by webhooks
     'prune_days' => 90,
 ],
 ```
 
-Both default `false` — no rows unless opted in. PAN, OTP, passwords, secrets always masked or dropped before log write, regardless of config.
+Both default `false` — nothing is recorded unless opted in. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use.
+
+| `logs` | Where entries go | Env |
+| --- | --- | --- |
+| `false` | nowhere | `WLCM_LOGS=false` |
+| `'database'` (or `true`) | `wlcm_logs` table — needs the migration | `WLCM_LOGS=database` |
+| `'file'` | one JSON object per line at `logs_path` | `WLCM_LOGS=file`, `WLCM_LOGS_PATH` |
+| `'log'` | one `info` record per entry on `logs_channel` | `WLCM_LOGS=log`, `WLCM_LOGS_CHANNEL` |
+
+All three drivers record the same fields per entry — the `wlcm_logs` columns; outgoing entries carry the request/response ones, webhook entries only the delivery ones. The file driver appends with `LOCK_EX`, creates the directory if missing, and timestamps in ISO-8601.
+
+Anything else throws `MissingConfigurationException` the first time the store resolves — a typo'd driver name fails loudly instead of silently dropping the audit trail. `null` and `''` count as off, so an unset env var is not a typo.
+
+The driver is picked once, when the store is first resolved — it is a singleton, so swapping between drivers at runtime needs a rebind. Turning logging off and back on at runtime keeps working: every driver rechecks the config on each write.
 
 Both models are `MassPrunable`:
 
@@ -194,7 +209,7 @@ Schedule::command('model:prune', ['--model' => [
 
 `prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
 
-Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface, bound to `DatabaseLogStore`; rebind it to send audit rows somewhere else. Database is the only driver shipped today.
+Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface; rebind it to send audit entries somewhere none of the shipped drivers reach.
 
 ## Testing
 
