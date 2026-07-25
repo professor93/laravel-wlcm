@@ -7,13 +7,13 @@ namespace Uzbek\Wlcm\Storage;
 use Throwable;
 use Uzbek\Wlcm\Models\WlcmLog;
 
-final class LogWriter
+final class DatabaseLogStore implements LogStore
 {
     /**
      * @param  array<string, mixed>|null  $requestBody
      * @param  array<string, string|null>  $ids
      */
-    public static function out(
+    public function out(
         string $connection,
         string $api,
         string $method,
@@ -53,7 +53,7 @@ final class LogWriter
     }
 
     /** @param array<string, mixed> $payload */
-    public static function webhook(string $connection, array $payload, string $result): void
+    public function webhook(string $connection, array $payload, string $result): void
     {
         if (! (bool) config('wlcm.storage.logs', false)) {
             return;

@@ -16,7 +16,7 @@ use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\SubscriptionChargeFailed;
 use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
-use Uzbek\Wlcm\Storage\LogWriter;
+use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 
@@ -25,6 +25,8 @@ final readonly class WebhookController
     public function __construct(
         private Repository $config,
         private Container $container,
+        private LogStore $logStore,
+        private TransactionRecorder $transactions,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -38,15 +40,15 @@ final readonly class WebhookController
             return $this->handleSubscription($payload, $requestData);
         }
 
-        $outcome = TransactionRecorder::applyWebhook($payload);
+        $outcome = $this->transactions->applyWebhook($payload);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            LogWriter::webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate');
+            $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate');
 
             return new JsonResponse(['status' => 'ok']);
         }
 
-        LogWriter::webhook((string) $payload->connection, $requestData, 'ok');
+        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok');
 
         event(new WebhookReceived($payload));
 
@@ -68,7 +70,7 @@ final readonly class WebhookController
             $instance->handle($payload);
         }
 
-        TransactionRecorder::markProcessed($payload);
+        $this->transactions->markProcessed($payload);
 
         return new JsonResponse(['status' => 'ok']);
     }
@@ -76,15 +78,15 @@ final readonly class WebhookController
     /** @param array<string, mixed> $requestData */
     private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData): JsonResponse
     {
-        $outcome = TransactionRecorder::claimSubscription($payload);
+        $outcome = $this->transactions->claimSubscription($payload);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            LogWriter::webhook((string) $payload->connection, $requestData, 'duplicate');
+            $this->logStore->webhook((string) $payload->connection, $requestData, 'duplicate');
 
             return new JsonResponse(['status' => 'ok']);
         }
 
-        LogWriter::webhook((string) $payload->connection, $requestData, 'ok');
+        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok');
 
         event(new WebhookReceived($payload));
 
@@ -108,7 +110,7 @@ final readonly class WebhookController
             $instance->handle($payload);
         }
 
-        TransactionRecorder::markSubscriptionProcessed($payload);
+        $this->transactions->markSubscriptionProcessed($payload);
 
         return new JsonResponse(['status' => 'ok']);
     }

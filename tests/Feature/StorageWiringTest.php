@@ -17,6 +17,7 @@ use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class StorageWiringTest extends TestCase
@@ -296,5 +297,31 @@ final class StorageWiringTest extends TestCase
         $log = WlcmLog::sole();
         $this->assertArrayNotHasKey('secret_key', $log->request_body);
         $this->assertArrayNotHasKey('secret_key', $log->response_body);
+    }
+
+    public function test_log_store_is_swappable(): void
+    {
+        $spy = new class implements LogStore
+        {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void
+            {
+                $this->calls[] = $result;
+            }
+
+            public function webhook(string $connection, array $payload, string $result): void
+            {
+                $this->calls[] = "webhook:{$result}";
+            }
+        };
+        $this->app->instance(LogStore::class, $spy);
+
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+        Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->assertSame(['ok'], $spy->calls);
+        $this->assertSame(0, WlcmLog::query()->count());
     }
 }

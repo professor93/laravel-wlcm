@@ -7,13 +7,19 @@ namespace Uzbek\Wlcm;
 use Illuminate\Contracts\Config\Repository;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Partner\PartnerClient;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final class WlcmManager
 {
     /** @var array<string, Connection> */
     private array $connections = [];
 
-    public function __construct(private readonly Repository $config) {}
+    public function __construct(
+        private readonly Repository $config,
+        private readonly LogStore $logStore,
+        private readonly TransactionRecorder $transactions,
+    ) {}
 
     public function connection(?string $name = null): Connection
     {
@@ -32,7 +38,7 @@ final class WlcmManager
         }
 
         /** @var array<string, mixed> $config */
-        return $this->connections[$name] = new Connection($name, $config);
+        return $this->connections[$name] = new Connection($name, $config, $this->logStore, $this->transactions);
     }
 
     public function partner(): PartnerClient

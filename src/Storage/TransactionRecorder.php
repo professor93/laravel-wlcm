@@ -15,15 +15,15 @@ use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class TransactionRecorder
 {
-    private static function enabled(): bool
+    private function enabled(): bool
     {
         return (bool) config('wlcm.storage.transactions', false);
     }
 
     /** @param array<string, mixed> $requestPayload */
-    public static function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
+    public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
     {
-        if (! self::enabled()) {
+        if (! $this->enabled()) {
             return;
         }
 
@@ -53,9 +53,9 @@ final class TransactionRecorder
 
     // Claim-then-dispatch: Fresh rows keep processed_at null until the controller
     // finishes events+handler, so a crash mid-dispatch reprocesses on redelivery.
-    public static function applyWebhook(WebhookPayload $payload): WebhookOutcome
+    public function applyWebhook(WebhookPayload $payload): WebhookOutcome
     {
-        if (! self::enabled()) {
+        if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
 
@@ -116,9 +116,9 @@ final class TransactionRecorder
         });
     }
 
-    public static function markProcessed(WebhookPayload $payload): void
+    public function markProcessed(WebhookPayload $payload): void
     {
-        if (! self::enabled()) {
+        if (! $this->enabled()) {
             return;
         }
 
@@ -128,13 +128,13 @@ final class TransactionRecorder
             ->update(['processed_at' => now()]);
     }
 
-    public static function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+    public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
     {
-        if (! self::enabled()) {
+        if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
 
-        $key = self::subscriptionKey($payload);
+        $key = $this->subscriptionKey($payload);
 
         try {
             WlcmTransaction::query()->create([
@@ -161,19 +161,19 @@ final class TransactionRecorder
         }
     }
 
-    public static function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+    public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
     {
-        if (! self::enabled()) {
+        if (! $this->enabled()) {
             return;
         }
 
         WlcmTransaction::query()
             ->where('connection', $payload->connection)
-            ->where('delivery_key', self::subscriptionKey($payload))
+            ->where('delivery_key', $this->subscriptionKey($payload))
             ->update(['processed_at' => now()]);
     }
 
-    private static function subscriptionKey(SubscriptionWebhookPayload $payload): string
+    private function subscriptionKey(SubscriptionWebhookPayload $payload): string
     {
         return hash('sha256', "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}");
     }

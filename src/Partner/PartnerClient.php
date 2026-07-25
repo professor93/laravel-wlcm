@@ -8,7 +8,8 @@ use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Exceptions\ConnectionException;
-use Uzbek\Wlcm\Storage\LogWriter;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final class PartnerClient
 {
@@ -22,6 +23,8 @@ final class PartnerClient
         public readonly string $connectionName,
         protected readonly array $config,
         protected readonly array $http,
+        protected readonly LogStore $logStore,
+        protected readonly TransactionRecorder $transactions,
     ) {}
 
     /**
@@ -89,20 +92,19 @@ final class PartnerClient
         return $this->send('DELETE', $this->url($path, $query), null);
     }
 
-    public function baseUrl(): string
-    {
-        return rtrim((string) $this->config['base_url'], '/');
-    }
-
     public function splitAmountUnit(): string
     {
         return (string) ($this->config['split_amount_unit'] ?? 'sum');
     }
 
-    /** @return WlcmHttpShape */
-    public function httpConfig(): array
+    public function logStore(): LogStore
     {
-        return $this->http;
+        return $this->logStore;
+    }
+
+    public function transactions(): TransactionRecorder
+    {
+        return $this->transactions;
     }
 
     /** @return array<string, mixed> */
@@ -127,7 +129,7 @@ final class PartnerClient
                 ? $request->send($method, $url)
                 : $request->withBody($body, 'application/json')->send($method, $url);
         } catch (HttpConnectionException $e) {
-            LogWriter::out($this->connectionName, 'partner', $method, $url, $this->decode($body), null, null, $this->elapsedMs($started), result: 'error');
+            $this->logStore->out($this->connectionName, 'partner', $method, $url, $this->decode($body), null, null, $this->elapsedMs($started), result: 'error');
 
             throw new ConnectionException($e->getMessage(), $this->connectionName, $method, $url, previous: $e);
         }
@@ -157,7 +159,7 @@ final class PartnerClient
             ];
         }
 
-        LogWriter::out(
+        $this->logStore->out(
             $this->connectionName,
             'partner',
             $method,

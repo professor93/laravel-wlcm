@@ -7,7 +7,6 @@ namespace Uzbek\Wlcm\Partner\Resources;
 use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
-use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final readonly class Checkout
 {
@@ -36,7 +35,7 @@ final readonly class Checkout
         /** @var CheckoutResponseShape $checkoutResult */
         $response = CheckoutResponse::fromArray($checkoutResult);
 
-        TransactionRecorder::recordCheckout($this->client->connectionName, $payload, $response);
+        $this->client->transactions()->recordCheckout($this->client->connectionName, $payload, $response);
 
         return $response;
     }

@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
+use Uzbek\Wlcm\Storage\DatabaseLogStore;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final class WlcmServiceProvider extends ServiceProvider
 {
@@ -14,9 +17,16 @@ final class WlcmServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/wlcm.php', 'wlcm');
 
+        $this->app->singleton(LogStore::class, DatabaseLogStore::class);
+        $this->app->singleton(TransactionRecorder::class);
+
         $this->app->singleton(
             WlcmManager::class,
-            fn (Application $app): WlcmManager => new WlcmManager($app->make(Repository::class)),
+            fn (Application $app): WlcmManager => new WlcmManager(
+                $app->make(Repository::class),
+                $app->make(LogStore::class),
+                $app->make(TransactionRecorder::class),
+            ),
         );
     }
 

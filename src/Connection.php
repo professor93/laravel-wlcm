@@ -6,6 +6,8 @@ namespace Uzbek\Wlcm;
 
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Partner\PartnerClient;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final class Connection
 {
@@ -15,6 +17,8 @@ final class Connection
     public function __construct(
         public readonly string $name,
         private readonly array $config,
+        private readonly LogStore $logStore,
+        private readonly TransactionRecorder $transactions,
     ) {}
 
     public function partner(): PartnerClient
@@ -27,7 +31,7 @@ final class Connection
              * @var PartnerClientConfigShape $config
              * @var WlcmHttpShape $http
              */
-            $this->partner = new PartnerClient($this->name, $config, $http);
+            $this->partner = new PartnerClient($this->name, $config, $http, $this->logStore, $this->transactions);
         }
 
         return $this->partner;
