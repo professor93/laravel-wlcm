@@ -666,6 +666,44 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    public function test_multi_kilobyte_body_is_capped_without_leaking_a_digit_run(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            str_repeat('gateway timeout, ', 500).'8600123456789012'.str_repeat('!', 5000), 502,
+        )]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertLessThanOrEqual(500, strlen($body));
+            $this->assertSame(0, preg_match('/[0-9]{13,}/', $body));
+        }
+    }
+
+    // Scrubbing shortens the body, so a PAN sitting past byte 500 in the raw page still lands
+    // inside the 500 kept bytes. Whatever window the scan reads has to cover it whole.
+    public function test_pan_pulled_under_the_cut_by_earlier_scrubs_leaves_no_raw_digit_run(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            str_repeat('8600 1234 5678 9012,', 24).str_repeat('x', 25).'8600123456789012'.str_repeat('y', 100),
+            502,
+        )]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertLessThanOrEqual(500, strlen($body));
+            $this->assertSame(0, preg_match('/[0-9]{13,}/', $body));
+            $this->assertStringEndsWith(str_repeat('x', 25).'860012***9012'.str_repeat('y', 100), $body);
+        }
+    }
+
     public function test_bare_number_error_body_is_scrubbed(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response('8600123456789012', 502)]);

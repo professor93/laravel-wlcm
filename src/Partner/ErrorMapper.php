@@ -33,7 +33,11 @@ final class ErrorMapper
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    responseBody: mb_strcut(Masker::scrubPans($response->body()), 0, 500, 'UTF-8'),
+                    // Scrub before the final cut: a truncated PAN's check digit is Luhn-recoverable.
+                    // The pre-cut bounds the scan on huge bodies without ever reaching the kept
+                    // bytes: a scrub collapses 20 chars to 14 at worst, so the 500 that survive
+                    // come from no further in than byte 734.
+                    responseBody: mb_strcut(Masker::scrubPans(mb_strcut($response->body(), 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
                 );
             }
 
@@ -86,7 +90,7 @@ final class ErrorMapper
             is_array($body) => Masker::scrubProse(Masker::mask(self::maskDetailInputs($body))),
             // Cut on a codepoint boundary: a half character makes json_encode of the whole
             // exception context fail.
-            is_string($body) => mb_strcut(Masker::scrubPans($body), 0, 500, 'UTF-8'),
+            is_string($body) => mb_strcut(Masker::scrubPans(mb_strcut($body, 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
             is_int($body) => ($s = Masker::scrubPans((string) $body)) === (string) $body ? $body : $s,
             default => $body,
         };

@@ -547,4 +547,57 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('Value error, card 860012***9012 is blocked', $detail[0]['msg']);
         $this->assertSame('860012******9012', $detail[0]['input']);
     }
+
+    // The bundled stores drop a non-array response body, but the interface hands it to custom
+    // stores verbatim, so it has to leave the client already scrubbed.
+    public function test_non_array_bodies_are_scrubbed_on_the_log_surface(): void
+    {
+        $spy = new class implements LogStore
+        {
+            /** @var list<mixed> */
+            public array $bodies = [];
+
+            public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void
+            {
+                $this->bodies[] = $responseBody;
+            }
+
+            public function webhook(string $connection, array $payload, string $result): void {}
+        };
+        $this->app->instance(LogStore::class, $spy);
+
+        Http::fake([
+            '*partners/me' => Http::response('8600123456789012', 200),
+            '*partners/7' => Http::response('1234567890123456', 200),
+            '*partners/9' => Http::response('"upstream refused card 8600123456789012"', 200),
+        ]);
+
+        foreach (['/partners/me', '/partners/7', '/partners/9'] as $path) {
+            try {
+                Wlcm::partner()->get($path);
+                $this->fail('expected ServerException');
+            } catch (ServerException) {
+            }
+        }
+
+        $this->assertSame(
+            ['860012***9012', 1234567890123456, 'upstream refused card 860012***9012'],
+            $spy->bodies,
+        );
+    }
+
+    public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
+    {
+        // external_id sits outside the signature base, so prose there is unauthenticated.
+        $data = $this->webhookData();
+        $data['external_id'] = 'ORD-1 via card 8600123456789012';
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertSame('ORD-1 via card 860012***9012', $log->request_body['external_id']);
+        // Correlation keys are taken from the payload, not the log surface.
+        $this->assertSame('ORD-1 via card 8600123456789012', WlcmTransaction::sole()->external_id);
+    }
 }

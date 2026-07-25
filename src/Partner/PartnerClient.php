@@ -157,13 +157,21 @@ final class PartnerClient
             ];
         }
 
+        // A bare-scalar body reaches custom log stores untouched, so it is scrubbed like any prose.
+        $loggedBody = match (true) {
+            is_array($json) => Masker::scrubProse(Masker::mask(ErrorMapper::maskDetailInputs($json))),
+            is_string($json) => Masker::scrubPans($json),
+            is_int($json) => ($s = Masker::scrubPans((string) $json)) === (string) $json ? $json : $s,
+            default => $json,
+        };
+
         $this->logStore->out(
             $this->connectionName,
             'partner',
             $method,
             $url,
             $this->maskedBody($body),
-            is_array($json) ? Masker::scrubProse(Masker::mask(ErrorMapper::maskDetailInputs($json))) : $json,
+            $loggedBody,
             $response->status(),
             $durationMs,
             ids: $ids,

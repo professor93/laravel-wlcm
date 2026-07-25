@@ -36,7 +36,7 @@ final readonly class WebhookController
         $payload = $request->attributes->get('wlcm_payload');
 
         /** @var array<string, mixed> $requestData */
-        $requestData = Masker::mask((array) $request->all());
+        $requestData = Masker::scrubProse(Masker::mask((array) $request->all()));
 
         if ($payload instanceof SubscriptionWebhookPayload) {
             return $this->handleSubscription($payload, $requestData);
