@@ -38,8 +38,8 @@ return [
     ],
 
     'storage' => [
-        // false = off; 'database' (wlcm_logs table), 'file' (JSON lines), 'log' (Laravel
-        // log channel). true = 'database'. Any other value throws on first resolution.
+        // 'database' (wlcm_logs table), 'file' (JSON lines), 'log' (Laravel log channel).
+        // true/'1' = database; false/'0'/null/'' = off; unknown throws on first resolution.
         'logs' => env('WLCM_LOGS', false),
         // 'log' driver only; null = the app's default channel.
         'logs_channel' => env('WLCM_LOGS_CHANNEL'),

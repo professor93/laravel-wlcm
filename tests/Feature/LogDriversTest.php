@@ -15,6 +15,7 @@ use Monolog\Handler\TestHandler;
 use Monolog\LogRecord;
 use RuntimeException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
@@ -26,6 +27,8 @@ use Uzbek\Wlcm\Tests\TestCase;
 final class LogDriversTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const SCALAR_BODY = '9860991234569999';
 
     private ?string $dir = null;
 
@@ -56,10 +59,10 @@ final class LogDriversTest extends TestCase
 
     protected function tearDown(): void
     {
-        $default = storage_path('logs/wlcm.jsonl');
-
-        if (is_file($default)) {
-            unlink($default);
+        foreach ([storage_path('logs/wlcm.jsonl'), $this->emergencyLog()] as $default) {
+            if (is_file($default)) {
+                unlink($default);
+            }
         }
 
         if ($this->dir !== null && is_dir($this->dir)) {
@@ -121,6 +124,32 @@ final class LogDriversTest extends TestCase
         $callback();
 
         return $contexts;
+    }
+
+    private function emergencyLog(): string
+    {
+        return storage_path('logs/laravel.log');
+    }
+
+    private function scalarBodyCheckout(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response('"'.self::SCALAR_BODY.'"', 200)]);
+
+        try {
+            $this->checkout();
+            $this->fail('A scalar 200 body must not read as a success.');
+        } catch (ServerException $e) {
+            $this->assertSame(200, $e->responseStatus);
+        }
+    }
+
+    /** @return list<mixed> */
+    private function outArgs(): array
+    {
+        return [
+            'main', 'partner', 'POST', 'https://api.wlcm.test/api/v1/checkout',
+            ['amount' => 1200], ['order_id' => 1254], 201, 12, [], 'ok',
+        ];
     }
 
     private function fakeCheckout(): void
@@ -186,6 +215,37 @@ final class LogDriversTest extends TestCase
         $this->checkout();
 
         $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_env_one_writes_to_the_database(): void
+    {
+        config(['wlcm.storage.logs' => '1']);
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertSame('out', WlcmLog::sole()->direction);
+    }
+
+    public function test_env_zero_records_nothing_in_any_driver(): void
+    {
+        $path = $this->path();
+        config(['wlcm.storage.logs' => '0', 'wlcm.storage.logs_path' => $path]);
+        Exceptions::fake();
+        $this->fakeCheckout();
+
+        $logged = $this->captureLogContexts(function (): void {
+            $this->checkout();
+            (new DatabaseLogStore)->out(...$this->outArgs());
+            (new FileLogStore)->out(...$this->outArgs());
+            (new LogChannelLogStore)->out(...$this->outArgs());
+        });
+
+        $this->assertSame(0, WlcmLog::query()->count());
+        $this->assertFileDoesNotExist($path);
+        $this->assertSame([], $logged);
+        $this->assertCount(0, $this->records('wlcm_default'));
+        Exceptions::assertNothingReported();
     }
 
     public function test_file_driver_resolves_the_file_store(): void
@@ -369,6 +429,26 @@ final class LogDriversTest extends TestCase
         Exceptions::assertNothingReported();
     }
 
+    public function test_a_ghost_channel_falls_back_to_the_emergency_logger(): void
+    {
+        config(['wlcm.storage.logs' => 'log', 'wlcm.storage.logs_channel' => 'wlcm_ghost']);
+        Exceptions::fake();
+        $this->fakeCheckout();
+
+        $result = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->assertSame('https://c.test/x', $result->checkoutUrl);
+        $this->assertFileExists($this->emergencyLog());
+
+        $emergency = (string) file_get_contents($this->emergencyLog());
+        $this->assertStringContainsString('Log [wlcm_ghost] is not defined', $emergency);
+        $this->assertStringContainsString('Using emergency logger', $emergency);
+        $this->assertStringContainsString('laravel.INFO: wlcm', $emergency);
+        $this->assertStringContainsString('"direction":"out"', $emergency);
+        $this->assertCount(0, $this->records('wlcm_default'));
+        Exceptions::assertNothingReported();
+    }
+
     public function test_log_driver_never_logs_a_bare_pan(): void
     {
         config(['wlcm.storage.logs' => 'log']);
@@ -391,6 +471,43 @@ final class LogDriversTest extends TestCase
         $this->assertCount(1, $logged);
         $this->assertSame('webhook', $logged[0]['context']['direction']);
         $this->assertSame('7788', $logged[0]['context']['payment_id']);
+    }
+
+    public function test_database_driver_drops_a_scalar_response_body(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+
+        $this->scalarBodyCheckout();
+
+        $row = WlcmLog::sole();
+        $this->assertNull($row->response_body);
+        $this->assertSame('error', $row->result);
+        $this->assertStringNotContainsString(self::SCALAR_BODY, (string) json_encode($row->getAttributes()));
+    }
+
+    public function test_file_driver_drops_a_scalar_response_body(): void
+    {
+        $path = $this->useFileDriver();
+
+        $this->scalarBodyCheckout();
+
+        $this->assertNull($this->lines($path)[0]['response_body']);
+        $this->assertStringNotContainsString(self::SCALAR_BODY, (string) file_get_contents($path));
+    }
+
+    public function test_log_driver_drops_a_scalar_response_body(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $logged = $this->captureLogContexts(fn () => $this->scalarBodyCheckout());
+
+        $this->assertCount(1, $logged);
+        $this->assertNull($logged[0]['context']['response_body']);
+        $this->assertStringNotContainsString(self::SCALAR_BODY, (string) json_encode($logged[0]['context']));
+        $this->assertStringNotContainsString(
+            self::SCALAR_BODY,
+            (string) json_encode($this->records('wlcm_default')[0]->context),
+        );
     }
 
     public function test_drivers_agree_on_the_out_entry_shape(): void

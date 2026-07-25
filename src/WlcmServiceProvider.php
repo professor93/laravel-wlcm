@@ -25,7 +25,7 @@ final class WlcmServiceProvider extends ServiceProvider
             return match ($app->make(Repository::class)->get('wlcm.storage.logs', false)) {
                 'file' => $app->make(FileLogStore::class),
                 'log' => $app->make(LogChannelLogStore::class),
-                'database', true, false, null, '' => $app->make(DatabaseLogStore::class),
+                'database', true, '1', false, '0', null, '' => $app->make(DatabaseLogStore::class),
                 default => throw MissingConfigurationException::forKey('wlcm.storage.logs'),
             };
         });

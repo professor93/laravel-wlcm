@@ -83,6 +83,6 @@ final class DatabaseLogStore implements LogStore
     {
         $driver = config('wlcm.storage.logs', false);
 
-        return $driver === 'database' || $driver === true;
+        return $driver === 'database' || $driver === true || $driver === '1';
     }
 }
