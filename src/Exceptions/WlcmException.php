@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Exceptions;
 
 use RuntimeException;
 use Throwable;
+use Uzbek\Wlcm\Enums\WlcmErrorCode;
 
 class WlcmException extends RuntimeException
 {
@@ -25,5 +26,10 @@ class WlcmException extends RuntimeException
     public function errorCode(): ?string
     {
         return $this->errorCode;
+    }
+
+    public function errorCodeEnum(): ?WlcmErrorCode
+    {
+        return $this->errorCode === null ? null : WlcmErrorCode::tryFrom($this->errorCode);
     }
 }

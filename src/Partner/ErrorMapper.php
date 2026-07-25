@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Partner;
 
 use Illuminate\Http\Client\Response;
+use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\AuthorizationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
+use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
+use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
@@ -74,6 +77,9 @@ final class ErrorMapper
         $args = [$message, $connectionName, $method, $url, $status, $body];
 
         throw match (true) {
+            $errorCode === WlcmErrorCode::InvalidOtp->value,
+            $errorCode === WlcmErrorCode::OtpExpired->value => new InvalidOtpException(...$args, errorCode: $errorCode),
+            $errorCode === WlcmErrorCode::InsufficientFunds->value => new InsufficientFundsException(...$args, errorCode: $errorCode),
             $status === 401 => new AuthenticationException(...$args, errorCode: $errorCode),
             $status === 403 => new AuthorizationException(...$args, errorCode: $errorCode),
             $status === 404 => new NotFoundException(...$args, errorCode: $errorCode),

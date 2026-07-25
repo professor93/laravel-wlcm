@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Unit\Partner;
 
 use Illuminate\Support\Facades\Http;
+use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
+use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
+use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
@@ -199,6 +202,60 @@ final class ErrorMappingTest extends TestCase
         } catch (ValidationException $e) {
             $this->assertSame('card_not_found', $e->getMessage());
             $this->assertSame('card_not_found', $e->errorCode());
+        }
+    }
+
+    public function test_invalid_otp_code_maps_to_typed_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'invalid_otp'], 400)]);
+
+        try {
+            Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '000000');
+            $this->fail('expected InvalidOtpException');
+        } catch (InvalidOtpException $e) {
+            $this->assertSame('invalid_otp', $e->errorCode());
+            $this->assertSame(WlcmErrorCode::InvalidOtp, $e->errorCodeEnum());
+        }
+    }
+
+    public function test_otp_expired_maps_to_invalid_otp_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['code' => 'otp_expired', 'message' => 'OTP expired'], 400,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '000000');
+            $this->fail('expected InvalidOtpException');
+        } catch (InvalidOtpException $e) {
+            $this->assertSame('OTP expired', $e->getMessage());
+            $this->assertSame(WlcmErrorCode::OtpExpired, $e->errorCodeEnum());
+        }
+    }
+
+    public function test_insufficient_funds_maps_to_typed_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'insufficient_funds'], 400)]);
+
+        try {
+            Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+            $this->fail('expected InsufficientFundsException');
+        } catch (InsufficientFundsException $e) {
+            $this->assertSame('insufficient_funds', $e->errorCode());
+            $this->assertSame(WlcmErrorCode::InsufficientFunds, $e->errorCodeEnum());
+        }
+    }
+
+    public function test_unknown_code_still_maps_by_status(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'some_future_code'], 400)]);
+
+        try {
+            Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '000000');
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame('some_future_code', $e->errorCode());
+            $this->assertNull($e->errorCodeEnum());
         }
     }
 
