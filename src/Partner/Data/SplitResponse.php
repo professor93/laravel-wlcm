@@ -6,13 +6,17 @@ namespace Uzbek\Wlcm\Partner\Data;
 
 final readonly class SplitResponse
 {
-    /** @param list<SplitRecipient> $splits */
+    /**
+     * @param  list<SplitRecipient>  $splits
+     * @param  array<string, mixed>  $raw
+     */
     public function __construct(
         public int $paymentId,
         public string $splitType,
         public int $totalRecipients,
         public int|float|string $totalSplitAmount,
         public array $splits,
+        public array $raw,
     ) {}
 
     /** @param SplitResponseShape $data */
@@ -33,6 +37,7 @@ final readonly class SplitResponse
                 SplitRecipient::fromArray(...),
                 array_values(array_filter(is_array($splits) ? $splits : [], is_array(...))),
             ),
+            raw: $data,
         );
     }
 }

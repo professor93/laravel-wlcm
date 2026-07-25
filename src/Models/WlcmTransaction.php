@@ -32,9 +32,15 @@ final class WlcmTransaction extends Model
     public function prunable(): Builder
     {
         $pruneDays = config('wlcm.storage.prune_days', 90);
-        /** @var WlcmJsonScalar $pruneDays */
-        $days = (int) $pruneDays;
 
-        return self::query()->where('created_at', '<', now()->subDays($days));
+        if (! is_numeric($pruneDays)) {
+            return self::query()->whereRaw('1 = 0');
+        }
+
+        $days = max(1, (int) $pruneDays);
+
+        return self::query()
+            ->whereNotNull('processed_at')
+            ->where('created_at', '<', now()->subDays($days));
     }
 }

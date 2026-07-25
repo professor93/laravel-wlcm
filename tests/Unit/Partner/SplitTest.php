@@ -216,6 +216,16 @@ final class SplitTest extends TestCase
         $this->assertSame([], $response->splits);
     }
 
+    public function test_split_response_keeps_the_raw_payload(): void
+    {
+        $payload = ['payment_id' => 7788, 'split_type' => 'fixed', 'total_recipients' => 1];
+
+        $response = SplitResponse::fromArray($payload);
+
+        $this->assertSame(0, $response->totalSplitAmount);
+        $this->assertSame($payload, $response->raw);
+    }
+
     public function test_split_response_drops_non_array_rows(): void
     {
         $response = SplitResponse::fromArray(['payment_id' => 7788, 'splits' => ['oops', ['id' => 3]]]);

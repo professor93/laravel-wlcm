@@ -39,6 +39,7 @@ return [
     'storage' => [
         'logs' => false,
         'transactions' => false,
+        // null or garbage disables pruning; days are clamped to >= 1.
         'prune_days' => 90,
     ],
 ];
