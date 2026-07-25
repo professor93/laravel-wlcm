@@ -18,11 +18,17 @@ WLCM_API_SECRET=
 WLCM_WEBHOOK_SECRET=
 ```
 
-Multiple partners: entries under `wlcm.connections` in `config/wlcm.php`, then `Wlcm::connection('name')` instead of `Wlcm::partner()`.
+Multiple partners: entries under `wlcm.connections` in `config/wlcm.php`, then `Wlcm::connection('name')->partner()->...` where the examples below say `Wlcm::partner()->...`. `Wlcm::partner()` is shorthand for the `wlcm.default` connection.
 
 ## Money
 
 All amounts `int` tiyin (1 sum = 100 tiyin) — params, responses, everything you pass. Package converts to sum where API wants sum (subscription create/charge, fixed splits by default — see `split_amount_unit`). Inbound SUM values stay raw on DTO; `amountTiyin()` accessor uses digit math, never float.
+
+Fixed split amounts must be a real `int`. A string or float throws `InvalidAmountException` in both unit modes, before any conversion — a numeric string would ship the wrong unit silently.
+
+Inbound SUM strings are validated, never silently zeroed: `amountTiyin()` throws `InvalidAmountException` on anything but digits with at most two decimal places (optional leading `-`), and on a whole part of 17+ digits.
+
+`stateEnum()` returns `?PaymentState` — `null` when the server omits state or sends a value the enum does not model. Check for null before matching on it.
 
 ## Partner API
 
@@ -98,11 +104,13 @@ $split = Wlcm::partner()->payments()->split(7788, [
 Wlcm::partner()->payments()->getSplit(7788);
 ```
 
-Fixed amounts int tiyin like everything else. Wire unit via `wlcm.connections.{connection}.partner.split_amount_unit`: default `'sum'` converts for you; `'tiyin'` passes raw. Unit is sandbox-proven SUM (server errors compare fixed totals against payment SUM value); WLCM docs claim tiyin. Final WLCM confirmation pending (2026-07-25).
+Fixed amounts int tiyin like everything else — non-int throws. Wire unit via `wlcm.connections.{connection}.partner.split_amount_unit`: default `'sum'` converts for you; `'tiyin'` passes raw. Unit is sandbox-proven SUM (server errors compare fixed totals against payment SUM value); WLCM docs claim tiyin. Final WLCM confirmation pending (2026-07-25).
 
 > **Warning:** a wrong `split_amount_unit` misplaces money by a factor of 100. Do not flip this config without WLCM's confirmation.
 
 Server rules (WLCM-enforced): fixed total must equal payment amount exactly; duplicate recipients rejected 422; unknown recipients 404. Percent values (0-100) never converted. Response amounts stay raw decimal SUM strings on DTO.
+
+Response rows that are not arrays get dropped from `$split->splits` instead of hydrated into zeroed recipients — compare `count($split->splits)` against `$split->totalRecipients` to detect it. `$split->raw` keeps the untouched body either way.
 
 ## Fiscalization
 
@@ -121,7 +129,15 @@ Item amounts passthrough — SDK never converts them. Docs say tiyin; caller sen
 
 ## Webhooks
 
-Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires.
+Route auto-registered `POST /wlcm/webhook/{connection?}` (path via `wlcm.webhook.path`). The `{connection}` segment is constrained to the keys of `wlcm.connections` as read when routes load — an unknown name 404s, and a connection added to config after boot does not widen the list.
+
+Signature verified against `wlcm.connections.{connection}.partner.webhook_secret` before your code runs; invalid = 403, no listener fires. Missing or non-scalar required field = 422. Secret absent from config = `MissingConfigurationException`.
+
+Signature base is `{order_id}:{payment_id}:{state}:{timestamp}` for payments, `{external_order_id}:{event}:{timestamp}` for subscriptions.
+
+> **`amount` and `external_id` are in neither base.** They arrive unauthenticated — a valid signature says nothing about them. Never fulfill on the webhook's amount; call `Wlcm::partner()->orders()->status($orderId)` and settle from that.
+
+Freshness: `wlcm.webhook.tolerance_seconds` (default 300) 403s a delivery whose `timestamp` sits further than that from now, in either direction; an unreadable timestamp is rejected the same way. `null` is the only way to switch the check off — any other non-numeric or non-positive value throws `MissingConfigurationException`. Freshness is not dedupe: an identical delivery replayed inside the window verifies fine.
 
 Events: `PaymentSucceeded`, `PaymentCancelled`, catch-all `WebhookReceived`:
 
@@ -134,11 +150,17 @@ Event::listen(function (PaymentSucceeded $event) {
 });
 ```
 
-Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`.
+Or class handler: implement `WlcmWebhookHandler`, set `wlcm.webhook.handler`. A configured class that does not implement the interface throws `MissingConfigurationException` while handling the delivery — not at boot, so a typo surfaces on the first webhook.
 
-Subscription webhooks: same route, detected by `event` field. Own signature base (`{external_order_id}:{event}:{timestamp}` — per WLCM docs, not confirmed against real delivery; verify before production). Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`.
+Subscription webhooks: same route, detected by `event` field. Their signature base is per WLCM docs only, never confirmed against a real delivery — verify before production. Events: `SubscriptionActivated`, `SubscriptionCharged`, `SubscriptionChargeFailed`, `SubscriptionCancelled` (each carries `SubscriptionWebhookPayload`); `WebhookReceived` fires for both families. Own hook: implement `WlcmSubscriptionWebhookHandler`, set `wlcm.webhook.subscription_handler`.
 
-Dedupe needs `wlcm_transactions` table — enable `wlcm.storage.transactions`. Without it every delivery fires events again.
+Dedupe needs the `wlcm_transactions` table — enable `wlcm.storage.transactions`, off by default. Without it every delivery fires events again, replays included: a default install re-runs your listeners for any identical body resent inside the tolerance window.
+
+With it on, both families dedupe: payment deliveries keyed `(connection, payment_id)`, subscription deliveries keyed `(connection, sha256("{external_order_id}:{event}:{timestamp}"))`. Order per delivery is claim row → `WebhookReceived` + typed event → handler → mark processed. `WebhookReceived` fires once per unique delivery.
+
+**Handlers must be idempotent.** `processed_at` is stamped only after your handler returns, so a crash mid-dispatch leaves the row claimed but unprocessed and the next redelivery runs the whole dispatch again — events included. At-least-once, not exactly-once.
+
+With `wlcm.storage.logs` on, `wlcm_logs.result` records the verdict: `ok` dispatched, `duplicate` this delivery was already processed, `stale` a payment delivery that would move a row out of a terminal state (2 / -1 / -2) into anything but a cancel (-2). Subscription deliveries only ever log `ok` or `duplicate`.
 
 **Do not rely on webhooks alone.** Live deliveries are effectively at-most-once: failed delivery recorded with `attempts: 1`, no retry scheduled. Reconcile by polling — for orders still pending on your side, call `Wlcm::partner()->orders()->status($orderId)` and settle from `isPaid`/`stateEnum()`.
 
@@ -159,11 +181,18 @@ php artisan migrate
 
 Both default `false` — no rows unless opted in. PAN, OTP, passwords, secrets always masked or dropped before log write, regardless of config.
 
-`WlcmLog` is `MassPrunable`:
+Both models are `MassPrunable`:
 
 ```php
-Schedule::command('model:prune', ['--model' => [\Uzbek\Wlcm\Models\WlcmLog::class]])->daily();
+Schedule::command('model:prune', ['--model' => [
+    \Uzbek\Wlcm\Models\WlcmLog::class,
+    \Uzbek\Wlcm\Models\WlcmTransaction::class,
+]])->daily();
 ```
+
+`prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check.
+
+Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface, bound to `DatabaseLogStore`; rebind it to send audit rows somewhere else. Database is the only driver shipped today.
 
 ## Testing
 
@@ -174,6 +203,16 @@ use Uzbek\Wlcm\Facades\Wlcm;
 // win over anything registered by a later Http::fake() or Wlcm::fake().
 Wlcm::fake();
 ```
+
+No WLCM config needed. `fake()` fills `base_url`, `api_key`, `api_secret`, `webhook_secret` on the default connection with dummies, but only where the value is missing or empty — a configured value is never clobbered.
+
+Call it before the first `Wlcm::` call of the test. The manager caches the `Connection` and the client captures its config at construction, so a `fake()` running after the client exists leaves that client on the old config.
+
+Unstubbed endpoints throw. The catch-all answers HTTP 500, so `ServerException` comes out with message `wlcm stub missing for this endpoint` and `$e->requestPath` naming the URL — nothing success-shaped to mistake for a real answer.
+
+`fake()` installs a global `Http::fake()` with a `*` catch-all: it stubs every outbound HTTP call in the app, not just WLCM's. Anything else your test talks to over HTTP gets that 500.
+
+The filled `webhook_secret` is the published constant `whsec_fake`, so webhook tests running under `fake()` verify signatures against a value printed in this README — they prove wiring, not secrecy. Set a real secret in config before calling `fake()` when the secret is what you are testing.
 
 Custom responses + assertions:
 
