@@ -24,6 +24,11 @@ final class WebhookRoutePathTest extends TestCase
         $app['config']->set('wlcm.webhook.path', '   ');
     }
 
+    protected function useCustomPath($app): void
+    {
+        $app['config']->set('wlcm.webhook.path', 'hooks/x');
+    }
+
     /** @return array<string, string> */
     private function webhookData(): array
     {
@@ -60,5 +65,12 @@ final class WebhookRoutePathTest extends TestCase
     {
         $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
         $this->postJson('/', $this->webhookData())->assertNotFound();
+    }
+
+    #[DefineEnvironment('useCustomPath')]
+    public function test_custom_path_config_replaces_the_default_path(): void
+    {
+        $this->postJson('/hooks/x', $this->webhookData())->assertOk();
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertNotFound();
     }
 }
