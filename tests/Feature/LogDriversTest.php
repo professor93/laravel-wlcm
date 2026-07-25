@@ -201,6 +201,16 @@ final class LogDriversTest extends TestCase
         $this->assertInstanceOf(DatabaseLogStore::class, $this->app->make(LogStore::class));
     }
 
+    public function test_config_ships_both_stores_off(): void
+    {
+        $config = require dirname(__DIR__, 2).'/config/wlcm.php';
+
+        $this->assertIsArray($config);
+        $this->assertIsArray($config['storage']);
+        $this->assertFalse($config['storage']['logs']);
+        $this->assertFalse($config['storage']['transactions']);
+    }
+
     public function test_database_string_resolves_the_database_driver(): void
     {
         config(['wlcm.storage.logs' => 'database']);

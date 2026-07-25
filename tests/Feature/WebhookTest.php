@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Support\Facades\Event;
 use Uzbek\Wlcm\Events\PaymentCancelled;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
@@ -63,6 +64,45 @@ final class WebhookTest extends TestCase
         $this->postJson('/wlcm/webhook', $data)->assertForbidden();
     }
 
+    public function test_invalid_signature_fires_no_listener(): void
+    {
+        Event::fake([WebhookReceived::class, PaymentSucceeded::class, PaymentCancelled::class]);
+        $data = $this->payload();
+        $data['signature'] = str_repeat('0', 64);
+
+        $this->postJson('/wlcm/webhook', $data)->assertForbidden();
+
+        Event::assertNothingDispatched();
+    }
+
+    public function test_without_the_transactions_table_a_replay_fires_events_again(): void
+    {
+        Event::fake();
+        $data = $this->payload('2');
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        Event::assertDispatchedTimes(PaymentSucceeded::class, 2);
+        Event::assertDispatchedTimes(WebhookReceived::class, 2);
+    }
+
+    public function test_a_delivery_without_a_usable_state_never_reaches_the_dto(): void
+    {
+        $missing = $this->payload();
+        unset($missing['state']);
+
+        $this->postJson('/wlcm/webhook', $missing)->assertStatus(422);
+
+        $empty = $this->payload();
+        $empty['state'] = '';
+        $empty['signature'] = hash_hmac('sha256', '1254:7788::2026-07-24 12:00:00', 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', $empty)
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Missing field: state']);
+    }
+
     public function test_array_typed_optional_field_is_refused_not_fatal(): void
     {
         $data = $this->payload();
@@ -71,6 +111,23 @@ final class WebhookTest extends TestCase
         $data['signature'] = str_repeat('0', 64);
 
         $this->postJson('/wlcm/webhook', $data)->assertForbidden();
+    }
+
+    public function test_signed_payment_delivery_with_every_optional_field_poisoned_still_dispatches(): void
+    {
+        Event::fake();
+
+        $data = $this->payload('2');
+        $data['external_id'] = ['ORD-1'];
+        $data['provider'] = ['payme'];
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        Event::assertDispatched(WebhookReceived::class);
+        Event::assertDispatched(PaymentSucceeded::class, fn (PaymentSucceeded $e) => $e->payload->externalId === ''
+            && $e->payload->provider === ''
+            && $e->payload->paymentId === '7788'
+            && $e->payload->amountTiyin() === 1000);
     }
 
     public function test_config_handler_invoked(): void
@@ -121,6 +178,27 @@ final class WebhookTest extends TestCase
         $this->expectExceptionMessage('wlcm.webhook.handler');
 
         $this->postJson('/wlcm/webhook', $this->payload());
+    }
+
+    public function test_typod_handler_class_dies_in_the_container_not_at_boot(): void
+    {
+        config()->set('wlcm.webhook.handler', 'App\\Wlcm\\NoSuchHandler');
+
+        $this->assertTrue(app('router')->has('wlcm.webhook'));
+
+        $this->withoutExceptionHandling();
+        $this->expectException(BindingResolutionException::class);
+
+        $this->postJson('/wlcm/webhook', $this->payload());
+    }
+
+    public function test_a_connection_added_after_boot_does_not_widen_the_route(): void
+    {
+        config()->set('wlcm.connections.late', [
+            'partner' => ['base_url' => 'https://late.test/api/v1', 'api_key' => 'k', 'api_secret' => 's', 'webhook_secret' => 'whsec_test'],
+        ]);
+
+        $this->postJson('/wlcm/webhook/late', $this->payload())->assertNotFound();
     }
 
     public function test_int_typed_payment_payload_end_to_end(): void
@@ -256,6 +334,26 @@ final class WebhookTest extends TestCase
         $data['signature'] = str_repeat('0', 64);
 
         $this->postJson('/wlcm/webhook', $data)->assertForbidden();
+    }
+
+    public function test_signed_subscription_delivery_with_every_optional_field_poisoned_still_dispatches(): void
+    {
+        Event::fake();
+
+        $data = $this->subscriptionPayload();
+        $data['external_user_id'] = ['user-1001'];
+        $data['subscription_id'] = ['8'];
+        $data['amount'] = ['49900.00'];
+        $data['status'] = ['active'];
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        Event::assertDispatched(WebhookReceived::class);
+        Event::assertDispatched(SubscriptionActivated::class, fn (SubscriptionActivated $e) => $e->payload->externalUserId === ''
+            && $e->payload->subscriptionId === 0
+            && $e->payload->amount === '0'
+            && $e->payload->status === ''
+            && $e->payload->externalOrderId === 'order-1001');
     }
 
     public function test_subscription_invalid_signature_rejected(): void

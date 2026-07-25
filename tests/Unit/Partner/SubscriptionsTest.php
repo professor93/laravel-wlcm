@@ -72,6 +72,14 @@ final class SubscriptionsTest extends TestCase
         Wlcm::partner()->subscriptions()->create('o-1', 'u-1', 150);
     }
 
+    public function test_charge_rejects_fractional_tiyin(): void
+    {
+        Http::fake();
+
+        $this->expectException(InvalidAmountException::class);
+        Wlcm::partner()->subscriptions()->charge(5, 10001, 7);
+    }
+
     public function test_get_by_id(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response($this->subscriptionFixture(), 200)]);

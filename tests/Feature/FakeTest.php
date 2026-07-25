@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\AssertionFailedError;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -68,6 +70,74 @@ final class FakeTest extends TestCase
 
         $this->assertSame('Fake Partner', Wlcm::partner()->partners()->me()->name);
         $this->assertTrue(Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '111111')->success);
+    }
+
+    public function test_first_fake_wins_over_a_later_http_fake(): void
+    {
+        Wlcm::fake();
+        Http::fake([
+            '*/integrations/checkout' => Http::response(['order_id' => 99, 'state' => 0, 'checkout_url' => 'https://late.test'], 200),
+            '*/subscriptions/55/charge' => Http::response(['status' => 'success'], 200),
+        ]);
+
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test');
+
+        $this->assertSame('https://checkout.fake/wlcm', $r->checkoutUrl);
+
+        $this->expectException(ServerException::class);
+
+        Wlcm::partner()->subscriptions()->charge(55, 499000, 7);
+    }
+
+    public function test_first_fake_wins_over_a_later_wlcm_fake(): void
+    {
+        Wlcm::fake();
+        Wlcm::fake(['*/integrations/checkout' => ['order_id' => 99, 'state' => 0, 'checkout_url' => 'https://late.test']]);
+
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test');
+
+        $this->assertSame('https://checkout.fake/wlcm', $r->checkoutUrl);
+    }
+
+    public function test_fake_stubs_every_outbound_call_not_just_wlcm(): void
+    {
+        Wlcm::fake();
+
+        $response = Http::get('https://unrelated.test/anything');
+
+        $this->assertSame(500, $response->status());
+        $this->assertSame(['detail' => 'wlcm stub missing for this endpoint'], $response->json());
+    }
+
+    public function test_the_filled_webhook_secret_is_the_published_constant(): void
+    {
+        config()->set('wlcm.connections.main.partner', [
+            'base_url' => null, 'api_key' => null, 'api_secret' => null, 'webhook_secret' => null,
+        ]);
+        Wlcm::fake();
+
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '10.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', "1254:7788:2:{$data['timestamp']}", 'whsec_fake');
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+    }
+
+    public function test_fake_after_the_connection_is_cached_leaves_it_on_the_old_config(): void
+    {
+        config()->set('wlcm.connections.main.partner.base_url', '');
+
+        Wlcm::connection();
+        Wlcm::fake();
+
+        $this->assertSame('https://wlcm.fake/api/v1', config('wlcm.connections.main.partner.base_url'));
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('wlcm.connections.main.partner.base_url');
+
+        Wlcm::partner();
     }
 
     public function test_unstubbed_endpoint_throws_naming_the_path(): void

@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\PendingCommand;
+use RuntimeException;
+use Throwable;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\WebhookReceived;
@@ -41,6 +46,13 @@ final class StorageWiringTest extends TestCase
         parent::defineEnvironment($app);
         $app['config']->set('wlcm.storage.logs', true);
         $app['config']->set('wlcm.storage.transactions', true);
+    }
+
+    private function prune(): void
+    {
+        $command = $this->artisan('model:prune', ['--model' => [WlcmTransaction::class]]);
+        $this->assertInstanceOf(PendingCommand::class, $command);
+        $command->assertExitCode(0);
     }
 
     /** @return array<string, string> */
@@ -176,6 +188,24 @@ final class StorageWiringTest extends TestCase
         Exceptions::assertReported(QueryException::class);
     }
 
+    public function test_a_throwing_report_surfaces_to_the_caller(): void
+    {
+        Schema::drop('wlcm_logs');
+        $this->app->instance(ExceptionHandler::class, new class(app()) extends Handler
+        {
+            public function report(Throwable $e): void
+            {
+                throw new RuntimeException('log channel is down');
+            }
+        });
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('log channel is down');
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+    }
+
     public function test_replayed_success_after_cancel_is_stale(): void
     {
         Event::fake();
@@ -244,6 +274,19 @@ final class StorageWiringTest extends TestCase
         Event::assertDispatchedTimes(WebhookReceived::class, 1);
     }
 
+    public function test_real_subscription_delivery_leaves_a_reaper_exempt_claim_row(): void
+    {
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $claim = WlcmTransaction::sole();
+        $this->assertSame('subscription', $claim->getAttribute('api'));
+        $this->assertNull($claim->payment_id);
+        $deliveryKey = $claim->getAttribute('delivery_key');
+        $this->assertIsString($deliveryKey);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $deliveryKey);
+        $this->assertNotNull($claim->processed_at);
+    }
+
     public function test_distinct_subscription_deliveries_both_processed(): void
     {
         Event::fake();
@@ -253,6 +296,40 @@ final class StorageWiringTest extends TestCase
 
         $this->assertSame(2, WlcmTransaction::where('api', 'subscription')->count());
         Event::assertDispatchedTimes(WebhookReceived::class, 2);
+    }
+
+    public function test_subscription_deliveries_only_ever_log_ok_or_duplicate(): void
+    {
+        $data = $this->subscriptionWebhookData();
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $this->assertSame(['ok', 'duplicate'], WlcmLog::query()->orderBy('id')->pluck('result')->all());
+    }
+
+    public function test_a_late_webhook_for_a_reaped_checkout_still_dispatches_as_a_new_row(): void
+    {
+        config()->set('wlcm.storage.prune_days', null);
+        config()->set('wlcm.storage.stale_days', 30);
+        Event::fake();
+
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'ORD-1', 'state' => 0,
+            'checkout_url' => 'https://c.test/x', 'message' => null,
+        ], 201)]);
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-1');
+        WlcmTransaction::query()->update(['created_at' => now()->subDays(31)]);
+
+        $this->prune();
+        $this->assertSame(0, WlcmTransaction::query()->count());
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $tx = WlcmTransaction::sole();
+        $this->assertSame('7788', $tx->payment_id);
+        $this->assertSame(2, $tx->state);
+        Event::assertDispatched(PaymentSucceeded::class);
     }
 
     public function test_webhook_500_when_transactions_table_broken(): void
@@ -441,6 +518,56 @@ final class StorageWiringTest extends TestCase
         $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
 
         $this->assertSame(['applyWebhook', 'markProcessed'], $spy->calls);
+        $this->assertSame(0, WlcmTransaction::query()->count());
+    }
+
+    public function test_swapped_transaction_store_takes_the_subscription_and_checkout_paths_too(): void
+    {
+        $spy = new class implements TransactionStore
+        {
+            /** @var list<string> */
+            public array $calls = [];
+
+            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            {
+                $this->calls[] = 'applyWebhook';
+
+                return WebhookOutcome::Fresh;
+            }
+
+            public function markProcessed(WebhookPayload $payload): void
+            {
+                $this->calls[] = 'markProcessed';
+            }
+
+            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            {
+                $this->calls[] = 'claimSubscription';
+
+                return WebhookOutcome::Fresh;
+            }
+
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            {
+                $this->calls[] = 'markSubscriptionProcessed';
+            }
+
+            public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
+            {
+                $this->calls[] = 'recordCheckout';
+            }
+        };
+        $this->app->instance(TransactionStore::class, $spy);
+
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'ORD-9', 'state' => 0,
+            'checkout_url' => 'https://c.test/x', 'message' => null,
+        ], 201)]);
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $this->assertSame(['recordCheckout', 'claimSubscription', 'markSubscriptionProcessed'], $spy->calls);
         $this->assertSame(0, WlcmTransaction::query()->count());
     }
 

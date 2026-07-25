@@ -107,6 +107,21 @@ final class VerifySignatureTest extends TestCase
         }
     }
 
+    public function test_missing_state_422_naming_the_field(): void
+    {
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->validData();
+        unset($data['state']);
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 422');
+        } catch (HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertSame('Missing field: state', $e->getMessage());
+        }
+    }
+
     public function test_missing_secret_fails_closed(): void
     {
         config()->set('wlcm.connections.main.partner.webhook_secret', null);
@@ -229,6 +244,22 @@ final class VerifySignatureTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertInstanceOf(WebhookPayload::class, $request->attributes->get('wlcm_payload'));
+    }
+
+    public function test_future_timestamp_403_when_tolerance_set(): void
+    {
+        config()->set('wlcm.webhook.tolerance_seconds', 300);
+        Carbon::setTestNow('2026-07-25 12:00:00');
+        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        $data = $this->dataStampedAt((string) now()->addSeconds(301)->getTimestampMs());
+
+        try {
+            $middleware->handle($this->request($data), fn ($r) => response()->json());
+            $this->fail('expected 403');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+        }
     }
 
     public function test_unparseable_timestamp_403_when_tolerance_set(): void

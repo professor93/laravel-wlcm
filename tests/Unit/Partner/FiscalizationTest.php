@@ -51,6 +51,18 @@ final class FiscalizationTest extends TestCase
         $this->assertSame(501, $r->fiscalId);
     }
 
+    public function test_register_passes_item_amounts_through_unconverted(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['fiscal_id' => 501], 200)]);
+
+        Wlcm::partner()->fiscalization()->register(
+            items: [['title' => 'Premium subscription', 'price' => 120000, 'count' => 1, 'vat_percent' => 12]],
+            paymentId: 7788,
+        );
+
+        Http::assertSent(fn (Request $req): bool => $req->body() === '{"items":[{"title":"Premium subscription","price":120000,"count":1,"vat_percent":12}],"payment_id":7788}');
+    }
+
     public function test_register_requires_items_and_id(): void
     {
         $this->expectException(\InvalidArgumentException::class);

@@ -43,6 +43,18 @@ final class SplitTest extends TestCase
             && str_ends_with((string) parse_url($req->url(), PHP_URL_PATH), '/payments/7788/split'));
     }
 
+    public function test_percent_values_reach_the_wire_unconverted(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(self::RESPONSE, 200)]);
+
+        Wlcm::partner()->payments()->split(7788, [
+            ['recipient_id' => 10, 'recipient_type' => 'brand', 'split_type' => 'percent', 'amount' => 70],
+            ['recipient_id' => 22, 'recipient_type' => 'partner', 'split_type' => 'percent', 'amount' => 30],
+        ]);
+
+        Http::assertSent(fn (Request $req): bool => $req->body() === '{"recipients":[{"recipient_id":10,"recipient_type":"brand","split_type":"percent","amount":70},{"recipient_id":22,"recipient_type":"partner","split_type":"percent","amount":30}]}');
+    }
+
     public function test_get_split(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(self::RESPONSE, 200)]);

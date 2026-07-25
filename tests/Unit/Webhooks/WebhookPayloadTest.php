@@ -36,6 +36,36 @@ final class WebhookPayloadTest extends TestCase
         $this->assertFalse($p->isCancelled());
     }
 
+    public function test_int_cast_reads_a_non_numeric_state_as_created(): void
+    {
+        foreach (['', 'abc'] as $state) {
+            $p = $this->payload(['state' => $state]);
+            $this->assertSame(0, $p->state);
+            $this->assertSame(PaymentState::Created, $p->stateEnum());
+            $this->assertFalse($p->isSuccess());
+            $this->assertFalse($p->isCancelled());
+        }
+    }
+
+    public function test_int_cast_reads_a_leading_digit_state_as_success(): void
+    {
+        $p = $this->payload(['state' => '2abc']);
+
+        $this->assertSame(2, $p->state);
+        $this->assertSame(PaymentState::Success, $p->stateEnum());
+        $this->assertTrue($p->isSuccess());
+    }
+
+    public function test_only_an_unmodelled_number_yields_a_null_state_enum(): void
+    {
+        $p = $this->payload(['state' => '7']);
+
+        $this->assertSame(7, $p->state);
+        $this->assertNull($p->stateEnum());
+        $this->assertFalse($p->isSuccess());
+        $this->assertFalse($p->isCancelled());
+    }
+
     public function test_signature_base_uses_raw_state(): void
     {
         $p = $this->payload(['state' => '-2']);

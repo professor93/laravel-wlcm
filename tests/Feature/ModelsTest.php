@@ -159,15 +159,57 @@ final class ModelsTest extends TestCase
         config()->set('wlcm.storage.prune_days', 90);
         config()->set('wlcm.storage.stale_days', 30);
 
-        $claim = WlcmTransaction::create([
-            'connection' => 'main', 'api' => 'subscription', 'external_id' => 'SUB-1',
-            'state_text' => 'subscription.charged', 'delivery_key' => 'a3f1',
-            'created_at' => now()->subDays(400), 'processed_at' => null,
-        ]);
+        $claim = $this->subscriptionClaim(now()->subDays(400));
 
         $this->prune();
 
         $this->assertNotNull(WlcmTransaction::find($claim->id));
+    }
+
+    public function test_worst_case_windows_still_spare_both_claim_classes(): void
+    {
+        config()->set('wlcm.storage.prune_days', 0);
+        config()->set('wlcm.storage.stale_days', 0);
+
+        $partnerClaim = $this->transaction('CLAIMED', now()->subDays(400));
+        $subscriptionClaim = $this->subscriptionClaim(now()->subDays(400));
+
+        $this->prune();
+
+        $this->assertNotNull(WlcmTransaction::find($partnerClaim->id));
+        $this->assertNotNull(WlcmTransaction::find($subscriptionClaim->id));
+    }
+
+    public function test_future_dated_rows_are_immortal(): void
+    {
+        config()->set('wlcm.storage.prune_days', 1);
+        config()->set('wlcm.storage.stale_days', 1);
+
+        $processed = $this->transaction('FUTURE', now()->addDays(30), now()->addDays(30));
+        $abandoned = $this->transaction(null, now()->addDays(30));
+
+        $this->prune();
+
+        $this->assertNotNull(WlcmTransaction::find($processed->id));
+        $this->assertNotNull(WlcmTransaction::find($abandoned->id));
+    }
+
+    public function test_stale_window_discriminates_ninety_from_thirty(): void
+    {
+        config()->set('wlcm.storage.prune_days', null);
+        config()->set('wlcm.storage.stale_days', 90);
+
+        $abandoned = $this->transaction(null, now()->subDays(60));
+
+        $this->prune();
+
+        $this->assertNotNull(WlcmTransaction::find($abandoned->id));
+
+        config()->set('wlcm.storage.stale_days', 30);
+
+        $this->prune();
+
+        $this->assertNull(WlcmTransaction::find($abandoned->id));
     }
 
     public function test_non_numeric_stale_days_disables_the_reaper(): void
@@ -267,6 +309,15 @@ final class ModelsTest extends TestCase
     {
         return WlcmLog::create([
             'connection' => 'main', 'direction' => 'out', 'created_at' => $createdAt,
+        ]);
+    }
+
+    private function subscriptionClaim(Carbon $createdAt): WlcmTransaction
+    {
+        return WlcmTransaction::create([
+            'connection' => 'main', 'api' => 'subscription', 'external_id' => 'SUB-1',
+            'state_text' => 'subscription.charged', 'delivery_key' => 'a3f1',
+            'created_at' => $createdAt, 'processed_at' => null,
         ]);
     }
 
