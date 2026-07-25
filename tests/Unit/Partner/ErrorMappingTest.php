@@ -120,8 +120,12 @@ final class ErrorMappingTest extends TestCase
             // Masking a bare `input` must not touch values of non-sensitive fields.
             $body = $e->responseBody;
             $this->assertIsArray($body);
-            $this->assertSame(['amount' => -5], $body['detail'][0]['input']);
-            $this->assertSame(-5, $body['detail'][1]['input']);
+            $detail = $body['detail'];
+            $this->assertIsArray($detail);
+            $this->assertIsArray($detail[0]);
+            $this->assertIsArray($detail[1]);
+            $this->assertSame(['amount' => -5], $detail[0]['input']);
+            $this->assertSame(-5, $detail[1]['input']);
         }
     }
 
@@ -394,7 +398,11 @@ final class ErrorMappingTest extends TestCase
 
             $body = $e->responseBody;
             $this->assertIsArray($body);
-            $input = $body['detail'][0]['input'];
+            $detail = $body['detail'];
+            $this->assertIsArray($detail);
+            $this->assertIsArray($detail[0]);
+            $input = $detail[0]['input'];
+            $this->assertIsArray($input);
             $this->assertArrayNotHasKey('secret_key', $input);
             $this->assertSame('986099******9999', $input['card_number']);
         }
@@ -423,7 +431,10 @@ final class ErrorMappingTest extends TestCase
         } catch (ValidationException $e) {
             $body = $e->responseBody;
             $this->assertIsArray($body);
-            $this->assertSame('860012******1234', $body['detail'][0]['input']);
+            $detail = $body['detail'];
+            $this->assertIsArray($detail);
+            $this->assertIsArray($detail[0]);
+            $this->assertSame('860012******1234', $detail[0]['input']);
         }
     }
 
@@ -446,7 +457,10 @@ final class ErrorMappingTest extends TestCase
         } catch (ValidationException $e) {
             $body = $e->responseBody;
             $this->assertIsArray($body);
-            $this->assertSame('***', $body['detail'][0]['input']);
+            $detail = $body['detail'];
+            $this->assertIsArray($detail);
+            $this->assertIsArray($detail[0]);
+            $this->assertSame('***', $detail[0]['input']);
         }
     }
 

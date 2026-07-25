@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Testing\PendingCommand;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -28,7 +29,9 @@ final class ModelsTest extends TestCase
             'status_code' => 201, 'duration_ms' => 120, 'result' => 'ok',
         ]);
 
-        $this->assertSame(['amount' => 1], $log->fresh()->request_body);
+        $fresh = $log->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(['amount' => 1], $fresh->request_body);
     }
 
     public function test_transaction_row_roundtrip(): void
@@ -39,7 +42,9 @@ final class ModelsTest extends TestCase
             'provider' => 'payme', 'state' => 2, 'state_text' => 'success', 'meta' => [],
         ]);
 
-        $this->assertSame(120000, $tx->fresh()->amount_tiyin);
+        $fresh = $tx->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(120000, $fresh->amount_tiyin);
     }
 
     public function test_prune_drops_old_transactions_and_keeps_fresh(): void
@@ -253,7 +258,9 @@ final class ModelsTest extends TestCase
 
     private function prune(): void
     {
-        $this->artisan('model:prune', ['--model' => [WlcmLog::class, WlcmTransaction::class]])->assertExitCode(0);
+        $command = $this->artisan('model:prune', ['--model' => [WlcmLog::class, WlcmTransaction::class]]);
+        $this->assertInstanceOf(PendingCommand::class, $command);
+        $command->assertExitCode(0);
     }
 
     private function log(Carbon $createdAt): WlcmLog

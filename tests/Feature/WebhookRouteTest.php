@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Routing\RouteCollection;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class WebhookRouteTest extends TestCase
@@ -16,8 +17,9 @@ final class WebhookRouteTest extends TestCase
 
     public function test_empty_connections_config_still_compiles_routes(): void
     {
-        $this->expectNotToPerformAssertions();
+        $routes = app('router')->getRoutes();
 
-        app('router')->getRoutes()->compile();
+        $this->assertInstanceOf(RouteCollection::class, $routes);
+        $routes->compile();
     }
 }

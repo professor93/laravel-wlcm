@@ -79,6 +79,7 @@ final class StorageWiringTest extends TestCase
 
         $log = WlcmLog::sole();
         $this->assertSame('out', $log->direction);
+        $this->assertIsArray($log->request_body);
         $this->assertSame('986099******9999', $log->request_body['card_number']);
         $this->assertSame('***', $log->request_body['expire_date']);
         $this->assertSame(201, $log->status_code);
@@ -94,6 +95,7 @@ final class StorageWiringTest extends TestCase
 
         $log = WlcmLog::sole();
         $this->assertSame('out', $log->direction);
+        $this->assertIsArray($log->request_body);
         $this->assertSame('986099******9999', $log->request_body['card_number']);
         $this->assertSame('***', $log->request_body['expire_date']);
         $this->assertSame(200, $log->status_code);
@@ -292,6 +294,8 @@ final class StorageWiringTest extends TestCase
         Wlcm::partner()->subscriptions()->confirmCard(5, '888888', 3);
 
         $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertIsArray($log->response_body);
         $this->assertSame('***', $log->request_body['otp']);
         $this->assertSame('***', $log->response_body['otp']);
     }
@@ -303,6 +307,8 @@ final class StorageWiringTest extends TestCase
         Wlcm::partner()->webhooks()->create('https://a.test/h', 'whsec_x');
 
         $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertIsArray($log->response_body);
         $this->assertArrayNotHasKey('secret_key', $log->request_body);
         $this->assertArrayNotHasKey('secret_key', $log->response_body);
     }
@@ -330,7 +336,11 @@ final class StorageWiringTest extends TestCase
         }
 
         $log = WlcmLog::sole();
-        $this->assertSame('860012******1234', $log->response_body['detail'][0]['input']);
+        $this->assertIsArray($log->response_body);
+        $detail = $log->response_body['detail'];
+        $this->assertIsArray($detail);
+        $this->assertIsArray($detail[0]);
+        $this->assertSame('860012******1234', $detail[0]['input']);
     }
 
     public function test_array_typed_wire_id_does_not_break_a_successful_charge(): void
@@ -455,6 +465,7 @@ final class StorageWiringTest extends TestCase
 
         Wlcm::partner()->subscriptions()->attachCard(5, '9860991234569999', '3003', '998901234567');
 
+        $this->assertIsArray($spy->requestBody);
         $this->assertSame('986099******9999', $spy->requestBody['card_number']);
         $this->assertSame('***', $spy->requestBody['expire_date']);
     }

@@ -5,8 +5,45 @@ parameters:
     paths:
         - routes
         - src
+        - tests
+        - database
     typeAliases:
         # Every response/payload shape lives as @phpstan-type on the class it describes.
         # This one has no owner: it is the JSON scalar primitive shared by manager,
         # fake, logging, error mapping and webhook middleware alike.
         WlcmJsonScalar: 'bool|int|float|string|null'
+    ignoreErrors:
+        # Testbench declares $this->app as ?Application; every call site below runs inside a booted app.
+        -
+            identifier: method.nonObject
+            path: tests
+            count: 34
+        # Hydration-boundary tests feed shape-violating wire data on purpose; widening the DTO shapes would erase the survival guarantee. Split per file because a count pins to one path.
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/CheckoutTest.php
+            count: 2
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/FiscalizationTest.php
+            count: 2
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/PartnersTest.php
+            count: 3
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/ProvidersOrdersTest.php
+            count: 1
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/SplitTest.php
+            count: 5
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/SubscriptionsTest.php
+            count: 2
+        -
+            identifier: argument.type
+            path: tests/Unit/Partner/WebhooksResourceTest.php
+            count: 1

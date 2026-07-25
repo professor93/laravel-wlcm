@@ -6,12 +6,14 @@ namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Log\Logger as IlluminateLogger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\TestHandler;
+use Monolog\Logger as MonologLogger;
 use Monolog\LogRecord;
 use RuntimeException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
@@ -48,8 +50,12 @@ final class LogDriversTest extends TestCase
     /** @return list<LogRecord> */
     private function records(string $channel): array
     {
-        /** @var TestHandler $handler */
-        $handler = Log::channel($channel)->getLogger()->getHandlers()[0];
+        $logger = Log::channel($channel);
+        $this->assertInstanceOf(IlluminateLogger::class, $logger);
+        $monolog = $logger->getLogger();
+        $this->assertInstanceOf(MonologLogger::class, $monolog);
+        $handler = $monolog->getHandlers()[0];
+        $this->assertInstanceOf(TestHandler::class, $handler);
 
         return array_values(array_filter(
             $handler->getRecords(),
@@ -102,7 +108,7 @@ final class LogDriversTest extends TestCase
         return $path;
     }
 
-    /** @return list<array<string, mixed>> */
+    /** @return list<array<array-key, mixed>> */
     private function lines(string $path): array
     {
         $raw = trim((string) file_get_contents($path));
@@ -113,7 +119,7 @@ final class LogDriversTest extends TestCase
         );
     }
 
-    /** @return list<array<string, mixed>> */
+    /** @return list<array{level: string, message: string, context: array<array-key, mixed>}> */
     private function captureLogContexts(callable $callback): array
     {
         $contexts = [];
@@ -143,7 +149,7 @@ final class LogDriversTest extends TestCase
         }
     }
 
-    /** @return list<mixed> */
+    /** @return array{string, string, string, string, array<string, mixed>, array<string, mixed>, int, int, array<string, string|null>, string} */
     private function outArgs(): array
     {
         return [
@@ -346,7 +352,9 @@ final class LogDriversTest extends TestCase
         $contents = (string) file_get_contents($path);
         $this->assertStringNotContainsString('9860991234569999', $contents);
         $this->assertStringContainsString('986099******9999', $contents);
-        $this->assertSame('***', $this->lines($path)[0]['request_body']['expire_date']);
+        $requestBody = $this->lines($path)[0]['request_body'];
+        $this->assertIsArray($requestBody);
+        $this->assertSame('***', $requestBody['expire_date']);
     }
 
     public function test_file_driver_records_webhook_deliveries(): void
@@ -359,6 +367,7 @@ final class LogDriversTest extends TestCase
         $this->assertSame('webhook', $entry['direction']);
         $this->assertSame('ok', $entry['result']);
         $this->assertSame('7788', $entry['payment_id']);
+        $this->assertIsArray($entry['request_body']);
         $this->assertSame('ORD-1', $entry['request_body']['external_id']);
     }
 
@@ -562,7 +571,7 @@ final class LogDriversTest extends TestCase
     }
 
     /**
-     * @param  array<string, mixed>  $entry
+     * @param  array<array-key, mixed>  $entry
      * @return list<string>
      */
     private function sortedKeys(array $entry): array

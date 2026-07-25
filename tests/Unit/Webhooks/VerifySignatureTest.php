@@ -277,6 +277,7 @@ final class VerifySignatureTest extends TestCase
     public function test_missing_tolerance_key_defaults_closed(): void
     {
         $webhook = config('wlcm.webhook');
+        $this->assertIsArray($webhook);
         unset($webhook['tolerance_seconds']);
         config()->set('wlcm.webhook', $webhook);
         $this->assertFalse(config()->has('wlcm.webhook.tolerance_seconds'));
@@ -309,6 +310,8 @@ final class VerifySignatureTest extends TestCase
     {
         $config = require dirname(__DIR__, 3).'/config/wlcm.php';
 
+        $this->assertIsArray($config);
+        $this->assertIsArray($config['webhook']);
         $this->assertSame(300, $config['webhook']['tolerance_seconds']);
     }
 

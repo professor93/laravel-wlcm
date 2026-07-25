@@ -4,27 +4,28 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Foundation\Application;
 use Orchestra\Testbench\Attributes\DefineEnvironment;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class WebhookRoutePathTest extends TestCase
 {
-    protected function useArrayPath($app): void
+    protected function useArrayPath(Application $app): void
     {
         $app['config']->set('wlcm.webhook.path', ['array']);
     }
 
-    protected function useSlashOnlyPath($app): void
+    protected function useSlashOnlyPath(Application $app): void
     {
         $app['config']->set('wlcm.webhook.path', '///');
     }
 
-    protected function useWhitespacePath($app): void
+    protected function useWhitespacePath(Application $app): void
     {
         $app['config']->set('wlcm.webhook.path', '   ');
     }
 
-    protected function useCustomPath($app): void
+    protected function useCustomPath(Application $app): void
     {
         $app['config']->set('wlcm.webhook.path', 'hooks/x');
     }

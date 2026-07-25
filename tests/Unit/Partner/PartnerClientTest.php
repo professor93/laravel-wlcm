@@ -29,8 +29,10 @@ final class PartnerClientTest extends TestCase
 
         Http::assertSent(function (Request $request): bool {
             $body = $request->body();
+            $timestamp = $request->header('X-Timestamp')[0];
+            $this->assertIsString($timestamp);
             $signer = new RequestSigner('sk_test_secret');
-            $expected = $signer->sign('POST', $request->url(), $request->header('X-Timestamp')[0], $body);
+            $expected = $signer->sign('POST', $request->url(), $timestamp, $body);
 
             return $request->hasHeader('X-API-Key', 'pk_test_key')
                 && $request->header('X-Signature')[0] === $expected
@@ -46,8 +48,10 @@ final class PartnerClientTest extends TestCase
         Wlcm::partner()->get('/fiscalization', ['payment_id' => 7788, 'external_id' => 'ORD-1']);
 
         Http::assertSent(function (Request $request): bool {
+            $timestamp = $request->header('X-Timestamp')[0];
+            $this->assertIsString($timestamp);
             $signer = new RequestSigner('sk_test_secret');
-            $expected = $signer->sign('GET', $request->url(), $request->header('X-Timestamp')[0], '');
+            $expected = $signer->sign('GET', $request->url(), $timestamp, '');
 
             return $request->header('X-Signature')[0] === $expected;
         });

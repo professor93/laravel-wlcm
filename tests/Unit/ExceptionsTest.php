@@ -45,8 +45,10 @@ final class ExceptionsTest extends TestCase
 
     public function test_error_code_enum_covers_known_codes(): void
     {
+        $known = array_column(WlcmErrorCode::cases(), 'value');
+
         foreach (['invalid_otp', 'insufficient_funds', 'hold_not_found', 'pinfl_not_match', 'external_id_already_exists'] as $code) {
-            $this->assertNotNull(WlcmErrorCode::tryFrom($code), $code);
+            $this->assertContains($code, $known, $code);
         }
     }
 }

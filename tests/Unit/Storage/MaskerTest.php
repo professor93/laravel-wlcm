@@ -36,6 +36,8 @@ final class MaskerTest extends TestCase
     public function test_recursive(): void
     {
         $out = Masker::mask(['nested' => [['cardNumber' => '9860991234569999']]]);
+        $this->assertIsArray($out['nested']);
+        $this->assertIsArray($out['nested'][0]);
         $this->assertSame('986099******9999', $out['nested'][0]['cardNumber']);
     }
 

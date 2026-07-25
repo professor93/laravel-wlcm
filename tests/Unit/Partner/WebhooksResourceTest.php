@@ -88,8 +88,10 @@ final class WebhooksResourceTest extends TestCase
 
         $this->assertSame('https://new.test/hook', $hook->url);
         Http::assertSent(function (Request $r): bool {
+            $timestamp = $r->header('X-Timestamp')[0];
+            $this->assertIsString($timestamp);
             $signer = new RequestSigner('sk_test_secret');
-            $expected = $signer->sign('PATCH', $r->url(), $r->header('X-Timestamp')[0], $r->body());
+            $expected = $signer->sign('PATCH', $r->url(), $timestamp, $r->body());
 
             return $r->method() === 'PATCH'
                 && str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/partners/me/webhooks/7')
@@ -104,8 +106,10 @@ final class WebhooksResourceTest extends TestCase
         Wlcm::partner()->webhooks()->delete(7);
 
         Http::assertSent(function (Request $r): bool {
+            $timestamp = $r->header('X-Timestamp')[0];
+            $this->assertIsString($timestamp);
             $signer = new RequestSigner('sk_test_secret');
-            $expected = $signer->sign('DELETE', $r->url(), $r->header('X-Timestamp')[0], '');
+            $expected = $signer->sign('DELETE', $r->url(), $timestamp, '');
 
             return $r->method() === 'DELETE'
                 && str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/partners/me/webhooks/7')

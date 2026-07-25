@@ -36,7 +36,7 @@ final class CheckoutTest extends TestCase
         $this->assertSame('https://sandbox.wlcm.uz/pay/410', $r->checkoutUrl);
         $this->assertNull($r->transactionId);
 
-        Http::assertSent(fn (Request $req): bool => str_ends_with(parse_url($req->url(), PHP_URL_PATH), '/integrations/checkout')
+        Http::assertSent(fn (Request $req): bool => str_ends_with((string) parse_url($req->url(), PHP_URL_PATH), '/integrations/checkout')
             && $req->body() === '{"amount":120000,"external_id":"probe-mock-163350","payment_provider":"payme","return_url":"https://merchant.example.com/payment/return"}');
     }
 
@@ -65,6 +65,7 @@ final class CheckoutTest extends TestCase
 
         $this->assertSame(PaymentState::Initiating, $r->stateEnum());
         $this->assertNotNull($r->transactionId);
+        $this->assertNotNull($r->cid);
 
         $c = Wlcm::partner()->payments()->confirmOtp($r->transactionId, $r->cid, '111111');
         $this->assertTrue($c->success);

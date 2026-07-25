@@ -40,7 +40,7 @@ final class SplitTest extends TestCase
         $this->assertSame('created', $r->splits[0]->stateText);
 
         Http::assertSent(fn (Request $req): bool => $req->method() === 'POST'
-            && str_ends_with(parse_url($req->url(), PHP_URL_PATH), '/payments/7788/split'));
+            && str_ends_with((string) parse_url($req->url(), PHP_URL_PATH), '/payments/7788/split'));
     }
 
     public function test_get_split(): void
