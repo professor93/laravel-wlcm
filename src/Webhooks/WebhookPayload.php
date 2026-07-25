@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Webhooks;
 
+use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -55,6 +56,11 @@ final readonly class WebhookPayload
     public function stateEnum(): ?PaymentState
     {
         return PaymentState::tryFrom($this->state);
+    }
+
+    public function providerEnum(): ?PaymentProvider
+    {
+        return PaymentProvider::fromName($this->provider);
     }
 
     public function isSuccess(): bool

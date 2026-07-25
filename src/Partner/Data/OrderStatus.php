@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -73,6 +74,12 @@ final readonly class OrderStatus
     public function stateEnum(): ?PaymentState
     {
         return $this->state === null ? null : PaymentState::tryFrom($this->state);
+    }
+
+    // `gateway` is the provider that took the money, display-cased like the catalogue.
+    public function gatewayEnum(): ?PaymentProvider
+    {
+        return $this->gateway === null ? null : PaymentProvider::fromName($this->gateway);
     }
 
     // Server sends SUM as JSON float; pin to 2 decimals as string, then digit math.

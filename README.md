@@ -47,11 +47,13 @@ $r->checkoutUrl; // redirect the customer here
 Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::partner()->payments()->confirmOtp($transactionId, $cid, $otp)`. Other calls:
 
 - `Wlcm::partner()->partners()->me()` — partner info
-- `Wlcm::partner()->providers()->all()` — payment providers (public endpoint)
-- `Wlcm::partner()->orders()->status($id)` — `isPaid`, `stateEnum()`, `amount` (raw SUM float), `amountTiyin()` (public endpoint)
+- `Wlcm::partner()->providers()->all()` — payment providers (public endpoint), `providerEnum()` per row
+- `Wlcm::partner()->orders()->status($id)` — `isPaid`, `stateEnum()`, `gatewayEnum()`, `amount` (raw SUM float), `amountTiyin()` (public endpoint)
 - `Wlcm::partner()->payments()->cancel($id, reason: 1)` — `reason` = int code
 - `Wlcm::partner()->payments()->confirmPaylov($transactionId, $otp)` — UNVERIFIED: camelCase body from sandbox console, not confirmed live
 - `Wlcm::partner()->webhooks()` — `create($url, $secret)`, `all()`, `update()`, `events()` (delivery history), `delete()`. `secret_key` chosen at create goes into `WLCM_WEBHOOK_SECRET`
+
+`PaymentProvider` values are the lower-case strings the API accepts on the way out, but it answers with display casing (`Payme`, `Click`, `Uzum`), so `tryFrom()` misses every live row. Parse inbound names with `PaymentProvider::fromName()` — case-insensitive, `null` on anything with no case, including the sandbox-only `mock_payme`. `PaymentProviderInfo::providerEnum()`, `OrderStatus::gatewayEnum()` and `WebhookPayload::providerEnum()` already go through it; the raw string stays on the DTO either way.
 
 Error bodies come in three `detail` shapes and all three are read: a `{message, code, suggestions}` object (`getMessage()` from `message`, `errorCode()` from `code`), a plain string (`getMessage()`, plus `errorCode()` when it is bare snake_case), and pydantic's validation list (`getMessage()` from the first entry, field map on `errors()`). A top-level `code` outranks anything in `detail`. `errorCode()` hands back exactly what the server sent, so live UPPER_CASE codes like `ORDER_NOT_FOUND` arrive intact — `errorCodeEnum()` has no case for those and returns null, so match on `errorCode()` unless you know the code is in `WlcmErrorCode`.
 
