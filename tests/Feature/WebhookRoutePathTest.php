@@ -4,17 +4,23 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Orchestra\Testbench\Attributes\DefineEnvironment;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class WebhookRoutePathTest extends TestCase
 {
-    protected function defineEnvironment($app): void
+    protected function useArrayPath($app): void
     {
-        parent::defineEnvironment($app);
         $app['config']->set('wlcm.webhook.path', ['array']);
     }
 
-    public function test_array_typed_path_config_falls_back_to_default(): void
+    protected function useSlashOnlyPath($app): void
+    {
+        $app['config']->set('wlcm.webhook.path', '///');
+    }
+
+    /** @return array<string, string> */
+    private function webhookData(): array
     {
         $data = [
             'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
@@ -23,6 +29,24 @@ final class WebhookRoutePathTest extends TestCase
         ];
         $data['signature'] = hash_hmac('sha256', "1254:7788:2:{$data['timestamp']}", 'whsec_test');
 
-        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        return $data;
+    }
+
+    #[DefineEnvironment('useArrayPath')]
+    public function test_array_typed_path_config_falls_back_to_default(): void
+    {
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+    }
+
+    #[DefineEnvironment('useSlashOnlyPath')]
+    public function test_slash_only_path_config_falls_back_to_default(): void
+    {
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+    }
+
+    #[DefineEnvironment('useSlashOnlyPath')]
+    public function test_slash_only_path_config_does_not_shadow_the_app_root(): void
+    {
+        $this->postJson('/', $this->webhookData())->assertNotFound();
     }
 }

@@ -153,17 +153,12 @@ final class PartnerClient
             $orderId = $json['order_id'] ?? null;
             $paymentId = $json['payment_id'] ?? null;
             $transactionId = $json['transaction_id'] ?? null;
-            /**
-             * @var WlcmJsonScalar $externalId
-             * @var WlcmJsonScalar $orderId
-             * @var WlcmJsonScalar $paymentId
-             * @var WlcmJsonScalar $transactionId
-             */
+
             $ids = [
-                'external_id' => $externalId === null ? null : (string) $externalId,
-                'order_id' => $orderId === null ? null : (string) $orderId,
-                'payment_id' => $paymentId === null ? null : (string) $paymentId,
-                'transaction_id' => $transactionId === null ? null : (string) $transactionId,
+                'external_id' => is_scalar($externalId) ? (string) $externalId : null,
+                'order_id' => is_scalar($orderId) ? (string) $orderId : null,
+                'payment_id' => is_scalar($paymentId) ? (string) $paymentId : null,
+                'transaction_id' => is_scalar($transactionId) ? (string) $transactionId : null,
             ];
         }
 

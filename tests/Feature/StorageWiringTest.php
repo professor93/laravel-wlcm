@@ -328,6 +328,21 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('860012******1234', $log->response_body['detail'][0]['input']);
     }
 
+    public function test_array_typed_wire_id_does_not_break_a_successful_charge(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['status' => 'success', 'payment_id' => ['9']], 200)]);
+
+        $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        $this->assertTrue($result->succeeded());
+        $this->assertNull($result->paymentId);
+
+        $log = WlcmLog::sole();
+        $this->assertNull($log->payment_id);
+        $this->assertSame(200, $log->status_code);
+        $this->assertSame('ok', $log->result);
+    }
+
     public function test_log_store_is_swappable(): void
     {
         $spy = new class implements LogStore

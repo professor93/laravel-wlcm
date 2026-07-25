@@ -37,6 +37,9 @@ final readonly class Subscription
     /** @param SubscriptionShape $data */
     public static function fromArray(array $data): self
     {
+        $paymentId = $data['payment_id'] ?? null;
+        $lastPaymentId = $data['last_payment_id'] ?? null;
+
         return new self(
             id: (int) ($data['id'] ?? 0),
             partnerId: (int) ($data['partner_id'] ?? 0),
@@ -44,8 +47,8 @@ final readonly class Subscription
             externalUserId: (string) ($data['external_user_id'] ?? ''),
             amount: (string) ($data['amount'] ?? '0'),
             status: (string) ($data['status'] ?? ''),
-            paymentId: isset($data['payment_id']) ? (int) $data['payment_id'] : null,
-            lastPaymentId: isset($data['last_payment_id']) ? (int) $data['last_payment_id'] : null,
+            paymentId: is_numeric($paymentId) ? (int) $paymentId : null,
+            lastPaymentId: is_numeric($lastPaymentId) ? (int) $lastPaymentId : null,
             cardNumberMasked: isset($data['card_number_masked']) ? (string) $data['card_number_masked'] : null,
             cardVendor: isset($data['card_vendor']) ? (string) $data['card_vendor'] : null,
             lastPaymentStatus: isset($data['last_payment_status']) ? (string) $data['last_payment_status'] : null,

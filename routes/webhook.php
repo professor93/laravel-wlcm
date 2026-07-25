@@ -7,10 +7,12 @@ use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookController;
 
 $path = config('wlcm.webhook.path');
-$path = is_string($path) && $path !== '' ? $path : 'wlcm/webhook';
+
+// Array config kills BootProviders on the string cast, and a slash-only one registers a root catch-all.
+$path = is_string($path) && rtrim($path, '/') !== '' ? rtrim($path, '/') : 'wlcm/webhook';
 
 $route = Route::post(
-    rtrim($path, '/').'/{connection?}',
+    $path.'/{connection?}',
     WebhookController::class,
 )->middleware(VerifyWebhookSignature::class)->name('wlcm.webhook');
 

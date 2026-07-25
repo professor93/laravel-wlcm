@@ -8,6 +8,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\OrderStatus;
 use Uzbek\Wlcm\Tests\TestCase;
 
 final class ProvidersOrdersTest extends TestCase
@@ -172,6 +173,21 @@ final class ProvidersOrdersTest extends TestCase
 
         $this->assertNull($status->state);
         $this->assertNull($status->stateEnum());
+    }
+
+    public function test_order_status_rejects_array_typed_payment_id(): void
+    {
+        $status = OrderStatus::fromArray(['order_id' => 410, 'amount' => 1000.0, 'payment_id' => ['9']]);
+
+        $this->assertNull($status->paymentId);
+        $this->assertSame(['9'], $status->raw['payment_id']);
+    }
+
+    public function test_order_status_accepts_numeric_string_payment_id(): void
+    {
+        $status = OrderStatus::fromArray(['order_id' => 410, 'amount' => 1000.0, 'payment_id' => '9']);
+
+        $this->assertSame(9, $status->paymentId);
     }
 
     public function test_order_amount_tiyin_avoids_float_drift(): void

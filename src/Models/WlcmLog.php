@@ -30,6 +30,7 @@ final class WlcmLog extends Model
     protected $casts = [
         'request_body' => 'array',
         'response_body' => 'array',
+        'status_code' => 'integer',
         'created_at' => 'datetime',
     ];
 

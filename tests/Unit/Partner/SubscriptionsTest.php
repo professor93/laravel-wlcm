@@ -11,6 +11,7 @@ use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Partner\Data\Subscription;
 use Uzbek\Wlcm\Partner\Data\SubscriptionChargeResult;
 use Uzbek\Wlcm\Tests\TestCase;
 
@@ -213,6 +214,27 @@ final class SubscriptionsTest extends TestCase
         $result = Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
 
         $this->assertSame(9, $result->paymentId);
+    }
+
+    public function test_subscription_rejects_array_typed_payment_ids(): void
+    {
+        $sub = Subscription::fromArray([
+            'id' => 5, 'payment_id' => ['9'], 'last_payment_id' => ['9'],
+        ] + $this->subscriptionFixture());
+
+        $this->assertNull($sub->paymentId);
+        $this->assertNull($sub->lastPaymentId);
+        $this->assertSame(['9'], $sub->raw['payment_id']);
+    }
+
+    public function test_subscription_accepts_numeric_string_payment_ids(): void
+    {
+        $sub = Subscription::fromArray([
+            'id' => 5, 'payment_id' => '9', 'last_payment_id' => '9',
+        ] + $this->subscriptionFixture());
+
+        $this->assertSame(9, $sub->paymentId);
+        $this->assertSame(9, $sub->lastPaymentId);
     }
 
     public function test_charge_result_has_no_payment_id_when_absent(): void

@@ -49,6 +49,8 @@ final readonly class OrderStatus
             }
         }
 
+        $paymentId = $data['payment_id'] ?? null;
+
         return new self(
             orderId: (int) ($data['order_id'] ?? 0),
             amount: (float) ($data['amount'] ?? 0),
@@ -60,7 +62,7 @@ final readonly class OrderStatus
             isCompleted: (bool) ($data['is_completed'] ?? false),
             statusExplanation: (array) ($data['status_explanation'] ?? []),
             extraData: (array) ($data['extra_data'] ?? []),
-            paymentId: isset($data['payment_id']) ? (int) $data['payment_id'] : null,
+            paymentId: is_numeric($paymentId) ? (int) $paymentId : null,
             gateway: isset($data['gateway']) ? (string) $data['gateway'] : null,
             transactionId: isset($data['transaction_id']) ? (string) $data['transaction_id'] : null,
             performedAt: isset($data['performed_at']) ? (string) $data['performed_at'] : null,
