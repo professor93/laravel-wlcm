@@ -21,6 +21,7 @@ use Uzbek\Wlcm\Webhooks\WlcmWebhookHandler;
 
 final class WebhookTest extends TestCase
 {
+    /** @return array<string, string> */
     private function payload(string $state = '2'): array
     {
         $data = [
@@ -139,6 +140,7 @@ final class WebhookTest extends TestCase
             && $e->payload->amountTiyin() === 10000000);
     }
 
+    /** @return array<string, int|string> */
     private function subscriptionPayload(string $event = 'subscription.activated'): array
     {
         $data = [

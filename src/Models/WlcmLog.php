@@ -10,6 +10,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
+ * @property string $direction
+ * @property array<array-key, mixed>|null $request_body
+ * @property array<array-key, mixed>|null $response_body
+ * @property int|null $status_code
+ * @property string $result
  * @property Carbon|null $created_at
  */
 final class WlcmLog extends Model

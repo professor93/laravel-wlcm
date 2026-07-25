@@ -10,6 +10,7 @@ use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class WebhookPayloadTest extends TestCase
 {
+    /** @param array<string, string> $overrides */
     private function payload(array $overrides = []): WebhookPayload
     {
         return WebhookPayload::fromArray($overrides + [

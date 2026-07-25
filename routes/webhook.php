@@ -6,8 +6,11 @@ use Illuminate\Support\Facades\Route;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookController;
 
+$path = config('wlcm.webhook.path');
+$path = is_string($path) && $path !== '' ? $path : 'wlcm/webhook';
+
 $route = Route::post(
-    rtrim((string) config('wlcm.webhook.path', 'wlcm/webhook'), '/').'/{connection?}',
+    rtrim($path, '/').'/{connection?}',
     WebhookController::class,
 )->middleware(VerifyWebhookSignature::class)->name('wlcm.webhook');
 

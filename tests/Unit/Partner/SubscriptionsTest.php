@@ -16,7 +16,11 @@ use Uzbek\Wlcm\Tests\TestCase;
 
 final class SubscriptionsTest extends TestCase
 {
-    /** Live sandbox POST /subscriptions 201 response, verbatim. */
+    /**
+     * Live sandbox POST /subscriptions 201 response, verbatim.
+     *
+     * @return array<string, int|string|null>
+     */
     private function subscriptionFixture(): array
     {
         return [

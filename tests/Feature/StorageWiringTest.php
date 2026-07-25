@@ -37,6 +37,7 @@ final class StorageWiringTest extends TestCase
         $app['config']->set('wlcm.storage.transactions', true);
     }
 
+    /** @return array<string, string> */
     private function webhookData(string $state = '2'): array
     {
         $data = [
@@ -49,6 +50,7 @@ final class StorageWiringTest extends TestCase
         return $data;
     }
 
+    /** @return array<string, int|string> */
     private function subscriptionWebhookData(string $event = 'subscription.charged'): array
     {
         $data = [

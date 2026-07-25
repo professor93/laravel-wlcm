@@ -23,6 +23,7 @@ final class VerifySignatureTest extends TestCase
         parent::tearDown();
     }
 
+    /** @param array<string, mixed> $data */
     private function request(array $data): Request
     {
         $request = Request::create('/wlcm/webhook', 'POST', $data);
@@ -30,6 +31,7 @@ final class VerifySignatureTest extends TestCase
         return $request;
     }
 
+    /** @return array<string, string> */
     private function validData(): array
     {
         $data = [
@@ -42,6 +44,7 @@ final class VerifySignatureTest extends TestCase
         return $data;
     }
 
+    /** @return array<string, string> */
     private function dataStampedAt(string $timestamp): array
     {
         $data = $this->validData();
@@ -309,6 +312,7 @@ final class VerifySignatureTest extends TestCase
         $this->assertSame(300, $config['webhook']['tolerance_seconds']);
     }
 
+    /** @return array<string, int|string> */
     private function subscriptionData(): array
     {
         $data = [

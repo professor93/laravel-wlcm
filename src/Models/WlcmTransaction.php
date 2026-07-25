@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
+ * @property string|null $external_id
+ * @property string|null $payment_id
+ * @property int $amount_tiyin
  * @property int|null $state
  * @property Carbon|null $processed_at
  */
