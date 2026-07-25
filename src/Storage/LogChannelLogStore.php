@@ -56,17 +56,15 @@ final class LogChannelLogStore implements LogStore
             return;
         }
 
-        $externalId = $payload['external_id'] ?? null;
-        $orderId = $payload['order_id'] ?? null;
-        $paymentId = $payload['payment_id'] ?? null;
+        $ids = WebhookLogIds::from($payload);
 
         $this->write([
             'connection' => $connection,
             'direction' => 'webhook',
             'request_body' => $payload,
-            'external_id' => is_scalar($externalId) ? (string) $externalId : null,
-            'order_id' => is_scalar($orderId) ? (string) $orderId : null,
-            'payment_id' => is_scalar($paymentId) ? (string) $paymentId : null,
+            'external_id' => $ids['external_id'],
+            'order_id' => $ids['order_id'],
+            'payment_id' => $ids['payment_id'],
             'result' => $result,
             'created_at' => now()->toIso8601String(),
         ]);

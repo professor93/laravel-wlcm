@@ -194,6 +194,69 @@ final class LogDriversTest extends TestCase
         return $data;
     }
 
+    /** @return array<string, int|string> */
+    private function subscriptionWebhookData(): array
+    {
+        $data = [
+            'event' => 'subscription.charged', 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ];
+        $data['signature'] = hash_hmac('sha256', 'order-1001:subscription.charged:1745740800000', 'whsec_test');
+
+        return $data;
+    }
+
+    public function test_database_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $row = WlcmLog::sole();
+        $this->assertSame('order-1001', $row->external_id);
+        $this->assertNull($row->order_id);
+        $this->assertNull($row->payment_id);
+    }
+
+    public function test_file_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        $path = $this->useFileDriver();
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $entry = $this->lines($path)[0];
+        $this->assertSame('order-1001', $entry['external_id']);
+        $this->assertNull($entry['order_id']);
+        $this->assertNull($entry['payment_id']);
+    }
+
+    public function test_log_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $logged = $this->captureLogContexts(function (): void {
+            $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+        });
+
+        $this->assertCount(1, $logged);
+        $this->assertSame('order-1001', $logged[0]['context']['external_id']);
+        $this->assertNull($logged[0]['context']['order_id']);
+        $this->assertNull($logged[0]['context']['payment_id']);
+    }
+
+    public function test_payment_deliveries_keep_filing_under_the_payment_ids(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $row = WlcmLog::sole();
+        $this->assertSame('ORD-1', $row->external_id);
+        $this->assertSame('1254', $row->order_id);
+        $this->assertSame('7788', $row->payment_id);
+    }
+
     public function test_true_resolves_the_database_driver(): void
     {
         config(['wlcm.storage.logs' => true]);
