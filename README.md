@@ -158,7 +158,7 @@ php artisan migrate
 ],
 ```
 
-Both default `false` — nothing is recorded unless opted in. `transactions` is a strict toggle: `true`/`'1'`/`1` on, `false`/`'0'`/`0`/`null`/`''` off, anything else throws `MissingConfigurationException` on the first recorded call — `'off'` is a typo, not an off switch. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies; `wlcm_transactions` correlation keys stay raw.
+Both default `false` — nothing is recorded unless opted in. `transactions` is a strict toggle: `true`/`'1'`/`1` on, `false`/`'0'`/`0`/`null`/`''` off, anything else throws `MissingConfigurationException` on the first recorded call — `'off'` is a typo, not an off switch. PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies; `wlcm_transactions` correlation keys stay raw. Database columns are fixed width (`external_id` 100 chars, other ids 64) and a longer value used to throw the insert, losing the whole audit row — values are now cut to the width and end `~` so the cut is visible. The untouched value stays in the log row's `request_body`/`response_body` JSON, which has no width limit; the `file` and `log` drivers never cut anything. Lookups by a cut key are cut the same way, so webhook correlation still lands on its own row.
 
 | `logs` | Where entries go | Env |
 | --- | --- | --- |

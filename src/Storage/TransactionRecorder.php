@@ -35,7 +35,7 @@ final class TransactionRecorder implements TransactionStore
          * @var WlcmJsonScalar $provider
          */
         try {
-            WlcmTransaction::create([
+            WlcmTransaction::create(ColumnFit::row([
                 'connection' => $connection,
                 'api' => 'partner',
                 'external_id' => $response->externalId,
@@ -47,7 +47,7 @@ final class TransactionRecorder implements TransactionStore
                 'state_text' => $response->stateEnum()?->name,
                 // Correlation keys stay raw by design; meta is not one of them.
                 'meta' => Masker::scrubProse(Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid])),
-            ]);
+            ]));
         } catch (Throwable $e) {
             report($e); // Audit write must never break payment call.
         }
@@ -63,8 +63,8 @@ final class TransactionRecorder implements TransactionStore
 
         return DB::transaction(function () use ($payload): WebhookOutcome {
             $row = WlcmTransaction::query()
-                ->where('connection', $payload->connection)
-                ->where('payment_id', $payload->paymentId)
+                ->where('connection', ColumnFit::value('connection', $payload->connection))
+                ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
                 ->lockForUpdate()
                 ->first();
 
@@ -79,7 +79,7 @@ final class TransactionRecorder implements TransactionStore
                 return WebhookOutcome::Stale;
             }
 
-            $attributes = [
+            $attributes = ColumnFit::row([
                 'api' => 'partner',
                 'external_id' => $payload->externalId,
                 'order_id' => $payload->orderId,
@@ -89,7 +89,7 @@ final class TransactionRecorder implements TransactionStore
                 'state' => $payload->state,
                 'state_text' => $payload->stateEnum()?->name,
                 'processed_at' => null,
-            ];
+            ]);
 
             if ($row !== null) {
                 $row->update($attributes);
@@ -98,8 +98,8 @@ final class TransactionRecorder implements TransactionStore
             }
 
             $checkoutRow = WlcmTransaction::query()
-                ->where('connection', $payload->connection)
-                ->where('order_id', $payload->orderId)
+                ->where('connection', ColumnFit::value('connection', $payload->connection))
+                ->where('order_id', ColumnFit::value('order_id', $payload->orderId))
                 ->whereNull('payment_id')
                 ->lockForUpdate()
                 ->first();
@@ -111,7 +111,7 @@ final class TransactionRecorder implements TransactionStore
             }
 
             WlcmTransaction::query()->create(
-                ['connection' => $payload->connection, ...$attributes],
+                ['connection' => ColumnFit::value('connection', $payload->connection), ...$attributes],
             );
 
             return WebhookOutcome::Fresh;
@@ -125,8 +125,8 @@ final class TransactionRecorder implements TransactionStore
         }
 
         WlcmTransaction::query()
-            ->where('connection', $payload->connection)
-            ->where('payment_id', $payload->paymentId)
+            ->where('connection', ColumnFit::value('connection', $payload->connection))
+            ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
             ->update(['processed_at' => now()]);
     }
 
@@ -139,18 +139,18 @@ final class TransactionRecorder implements TransactionStore
         $key = $this->subscriptionKey($payload);
 
         try {
-            WlcmTransaction::query()->create([
+            WlcmTransaction::query()->create(ColumnFit::row([
                 'connection' => $payload->connection,
                 'api' => 'subscription',
                 'external_id' => $payload->externalOrderId,
                 'state_text' => $payload->event,
                 'delivery_key' => $key,
-            ]);
+            ]));
 
             return WebhookOutcome::Fresh;
         } catch (UniqueConstraintViolationException $e) {
             $existing = WlcmTransaction::query()
-                ->where('connection', $payload->connection)
+                ->where('connection', ColumnFit::value('connection', $payload->connection))
                 ->where('delivery_key', $key)
                 ->lockForUpdate()
                 ->first();
@@ -170,7 +170,7 @@ final class TransactionRecorder implements TransactionStore
         }
 
         WlcmTransaction::query()
-            ->where('connection', $payload->connection)
+            ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('delivery_key', $this->subscriptionKey($payload))
             ->update(['processed_at' => now()]);
     }

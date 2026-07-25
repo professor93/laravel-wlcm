@@ -30,7 +30,7 @@ final class DatabaseLogStore implements LogStore
         }
 
         try {
-            WlcmLog::create([
+            WlcmLog::create(ColumnFit::row([
                 'connection' => $connection,
                 'direction' => 'out',
                 'api' => $api,
@@ -46,7 +46,7 @@ final class DatabaseLogStore implements LogStore
                 'transaction_id' => $ids['transaction_id'] ?? null,
                 'result' => $result,
                 'created_at' => now(),
-            ]);
+            ]));
         } catch (Throwable $e) {
             report($e); // Audit write must never break payment call.
         }
@@ -62,7 +62,7 @@ final class DatabaseLogStore implements LogStore
         $ids = WebhookLogIds::from($payload);
 
         try {
-            WlcmLog::create([
+            WlcmLog::create(ColumnFit::row([
                 'connection' => $connection,
                 'direction' => 'webhook',
                 'request_body' => $payload,
@@ -71,7 +71,7 @@ final class DatabaseLogStore implements LogStore
                 'payment_id' => $ids['payment_id'],
                 'result' => $result,
                 'created_at' => now(),
-            ]);
+            ]));
         } catch (Throwable $e) {
             report($e); // Audit write must never break payment call.
         }
