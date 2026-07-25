@@ -67,7 +67,10 @@ final class ErrorMapper
                 $message = $detailMessage ?? $message;
             } elseif (is_array($detail)) {
                 $detailMessage = $detail['message'] ?? null;
-                $message = is_scalar($detailMessage) ? (string) $detailMessage : $message;
+                // Cast first, then test: `false` casts to "" and an empty message is worse
+                // than the reason phrase. "0" is a real message and survives.
+                $candidate = is_scalar($detailMessage) ? (string) $detailMessage : '';
+                $message = $candidate !== '' ? $candidate : $message;
                 $detailCode = $detail['code'] ?? null;
             } elseif ($detail !== null) {
                 /** @var WlcmJsonScalar $detail */
@@ -79,10 +82,16 @@ final class ErrorMapper
             // detail string. Live codes are UPPER_CASE and have no enum case: pass them raw.
             $errorCode = match (true) {
                 is_string($code) && $code !== '' => $code,
-                is_string($detailCode) && $detailCode !== '' => $detailCode,
+                // Case-insensitive: live codes are UPPER_CASE. Guarded so server prose
+                // cannot masquerade as a code and ride out unscrubbed.
+                is_string($detailCode) && preg_match('/^[A-Za-z0-9_]+$/', $detailCode) === 1 => $detailCode,
                 is_string($detail) && preg_match('/^[a-z0-9_]+$/', $detail) === 1 => $detail,
                 default => null,
             };
+
+            // errorCode is the only string reaching the exception without a scrub of its
+            // own. No-op on a real code; kills an all-digit one that slips the guard.
+            $errorCode = $errorCode === null ? null : Masker::scrubPans($errorCode);
 
             $errorsRaw = $body['errors'] ?? null;
 

@@ -225,6 +225,81 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    // errorCode is the one string that rides onto the exception unscrubbed, so prose
+    // must never reach it in the first place.
+    public function test_a_pan_shaped_object_detail_code_never_reaches_error_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'declined', 'code' => 'no order for card 4111111111111111',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+            $this->assertSame('declined', $e->getMessage());
+        }
+    }
+
+    public function test_a_bare_pan_object_detail_code_is_scrubbed_even_if_it_passes_the_guard(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'declined', 'code' => '4111111111111111',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+        }
+    }
+
+    public function test_a_pan_shaped_top_level_code_is_scrubbed_too(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => 'declined', 'code' => '4111111111111111',
+        ], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+        }
+    }
+
+    public function test_an_empty_object_detail_message_falls_back_to_the_reason(): void
+    {
+        $body = ['detail' => ['message' => '', 'code' => 'ORDER_NOT_FOUND']];
+        Http::fake(function () use (&$body) {
+            return Http::response($body, 404);
+        });
+
+        foreach ([['message' => '', 'code' => 'ORDER_NOT_FOUND'], ['message' => false, 'code' => 'ORDER_NOT_FOUND']] as $detail) {
+            $body = ['detail' => $detail];
+
+            try {
+                Wlcm::partner()->get('/orders/1/status');
+                $this->fail('expected NotFoundException');
+            } catch (NotFoundException $e) {
+                $this->assertSame('Not Found', $e->getMessage());
+                $this->assertSame('ORDER_NOT_FOUND', $e->errorCode());
+            }
+        }
+
+        // "0" is a real message, not an absent one.
+        $body = ['detail' => ['message' => '0']];
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('0', $e->getMessage());
+        }
+    }
+
     public function test_object_detail_message_is_pan_scrubbed(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
