@@ -9,6 +9,7 @@ use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionStore;
+use Uzbek\Wlcm\Support\ConnectionConfig;
 
 final class WlcmManager
 {
@@ -31,13 +32,12 @@ final class WlcmManager
             return $this->connections[$name];
         }
 
-        $config = $this->config->get("wlcm.connections.{$name}");
+        $config = ConnectionConfig::block($this->config, $name);
 
-        if (! is_array($config)) {
+        if ($config === null) {
             throw MissingConfigurationException::forKey("wlcm.connections.{$name}");
         }
 
-        /** @var array<string, mixed> $config */
         return $this->connections[$name] = new Connection($name, $config, $this->logStore, $this->transactions);
     }
 

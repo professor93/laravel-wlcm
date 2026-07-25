@@ -7,8 +7,10 @@ namespace Uzbek\Wlcm\Webhooks;
 use Closure;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Support\ConnectionConfig;
 
 /**
  * @phpstan-import-type WebhookPayloadShape from WebhookPayload
@@ -62,7 +64,8 @@ final readonly class VerifyWebhookSignature
             $payload = WebhookPayload::fromArray($requestData, $connection);
         }
 
-        $secret = $this->config->get("wlcm.connections.{$connection}.partner.webhook_secret");
+        $block = ConnectionConfig::block($this->config, $connection);
+        $secret = $block === null ? null : Arr::get($block, 'partner.webhook_secret');
 
         if (! is_string($secret) || $secret === '') {
             throw MissingConfigurationException::forKey("wlcm.connections.{$connection}.partner.webhook_secret");

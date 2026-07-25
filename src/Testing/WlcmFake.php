@@ -62,14 +62,27 @@ final class WlcmFake
         /** @var WlcmJsonScalar $default */
         $connection = (string) $default;
 
+        // Read and write by array key: a dotted connection name in a config path
+        // would fill a block nobody reads.
+        $connections = Config::get('wlcm.connections');
+        $connections = is_array($connections) ? $connections : [];
+        $block = $connections[$connection] ?? null;
+        $block = is_array($block) ? $block : [];
+        $partner = $block['partner'] ?? null;
+        $partner = is_array($partner) ? $partner : [];
+
         foreach (self::DUMMY_CREDENTIALS as $key => $value) {
-            $path = "wlcm.connections.{$connection}.partner.{$key}";
-            $current = Config::get($path);
+            $current = $partner[$key] ?? null;
 
             if (! is_string($current) || $current === '') {
-                Config::set($path, $value);
+                $partner[$key] = $value;
             }
         }
+
+        $block['partner'] = $partner;
+        $connections[$connection] = $block;
+
+        Config::set('wlcm.connections', $connections);
     }
 
     public function assertSent(callable $filter): void
