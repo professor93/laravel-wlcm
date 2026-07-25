@@ -19,6 +19,11 @@ final class WebhookRoutePathTest extends TestCase
         $app['config']->set('wlcm.webhook.path', '///');
     }
 
+    protected function useWhitespacePath($app): void
+    {
+        $app['config']->set('wlcm.webhook.path', '   ');
+    }
+
     /** @return array<string, string> */
     private function webhookData(): array
     {
@@ -47,6 +52,13 @@ final class WebhookRoutePathTest extends TestCase
     #[DefineEnvironment('useSlashOnlyPath')]
     public function test_slash_only_path_config_does_not_shadow_the_app_root(): void
     {
+        $this->postJson('/', $this->webhookData())->assertNotFound();
+    }
+
+    #[DefineEnvironment('useWhitespacePath')]
+    public function test_whitespace_only_path_config_falls_back_without_shadowing_the_app_root(): void
+    {
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
         $this->postJson('/', $this->webhookData())->assertNotFound();
     }
 }

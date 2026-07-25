@@ -8,8 +8,9 @@ use Uzbek\Wlcm\Webhooks\WebhookController;
 
 $path = config('wlcm.webhook.path');
 
-// Array config kills BootProviders on the string cast, and a slash-only one registers a root catch-all.
-$path = is_string($path) && rtrim($path, '/') !== '' ? rtrim($path, '/') : 'wlcm/webhook';
+// Array config kills BootProviders on the string cast, and a slash-or-whitespace-only one registers a root catch-all.
+$path = is_string($path) ? trim($path, " \t\n\r\0\x0B/") : '';
+$path = $path !== '' ? $path : 'wlcm/webhook';
 
 $route = Route::post(
     $path.'/{connection?}',
