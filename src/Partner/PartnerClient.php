@@ -169,7 +169,7 @@ final class PartnerClient
             $method,
             $url,
             $this->maskedBody($body),
-            is_array($json) ? Masker::mask($json) : $json,
+            is_array($json) ? Masker::mask(ErrorMapper::maskDetailInputs($json)) : $json,
             $response->status(),
             $durationMs,
             ids: $ids,

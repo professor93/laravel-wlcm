@@ -14,6 +14,7 @@ use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionCharged;
 use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\ServerException;
+use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
@@ -297,6 +298,32 @@ final class StorageWiringTest extends TestCase
         $log = WlcmLog::sole();
         $this->assertArrayNotHasKey('secret_key', $log->request_body);
         $this->assertArrayNotHasKey('secret_key', $log->response_body);
+    }
+
+    public function test_bare_pan_echo_never_lands_in_response_log(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'string_pattern_mismatch',
+                    'loc' => ['body', 'card_number'],
+                    'msg' => 'String should match pattern \'^[0-9]{16}$\'',
+                    'input' => '8600123412341234',
+                ],
+            ],
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->checkout()->create(
+                amount: 120000, externalId: 'ORD-9', provider: 'card',
+                cardNumber: '8600123412341234', expireDate: '3003',
+            );
+            $this->fail('expected ValidationException');
+        } catch (ValidationException) {
+        }
+
+        $log = WlcmLog::sole();
+        $this->assertSame('860012******1234', $log->response_body['detail'][0]['input']);
     }
 
     public function test_log_store_is_swappable(): void

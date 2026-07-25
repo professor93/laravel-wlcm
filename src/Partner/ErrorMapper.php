@@ -33,7 +33,7 @@ final class ErrorMapper
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    responseBody: substr($response->body(), 0, 500),
+                    responseBody: mb_strcut($response->body(), 0, 500),
                 );
             }
 
@@ -75,11 +75,13 @@ final class ErrorMapper
             }
         }
 
-        // FastAPI echoes the submitted payload in detail[].input; derivation above deliberately
-        // read the raw body, only what leaves on the exception is scrubbed.
+        // Derivation above reads the RAW body on purpose; only responseBody is scrubbed —
+        // message/errors still carry server prose. FastAPI echoes the submitted payload there.
         $exposedBody = match (true) {
-            is_array($body) => Masker::mask($body),
-            is_string($body) => substr($body, 0, 500),
+            is_array($body) => Masker::mask(self::maskDetailInputs($body)),
+            // Cut on a codepoint boundary: a half character makes json_encode of the whole
+            // exception context fail.
+            is_string($body) => mb_strcut($body, 0, 500),
             default => $body,
         };
 
@@ -104,6 +106,45 @@ final class ErrorMapper
             ),
             default => new ServerException(...$args, errorCode: $errorCode),
         };
+    }
+
+    // Pydantic sends `input` as the bare failing value for field-level errors, invisible to a
+    // key-based masker. Re-key under the loc tail so Masker's own rules decide.
+    /**
+     * @param  array<array-key, mixed>  $body
+     * @return array<array-key, mixed>
+     */
+    public static function maskDetailInputs(array $body): array
+    {
+        $detail = $body['detail'] ?? null;
+
+        if (! is_array($detail)) {
+            return $body;
+        }
+
+        foreach ($detail as $i => $item) {
+            if (! is_array($item) || ! array_key_exists('input', $item) || is_array($item['input'])) {
+                continue;
+            }
+
+            $locRaw = $item['loc'] ?? null;
+            $loc = is_array($locRaw) ? $locRaw : [];
+            $last = end($loc);
+            $field = is_scalar($last) ? (string) $last : '';
+
+            if ($field === '') {
+                continue;
+            }
+
+            // A DROP key masks to nothing at all, so an absent key means "withhold".
+            $masked = Masker::mask([$field => $item['input']]);
+            $item['input'] = array_key_exists($field, $masked) ? $masked[$field] : '***';
+            $detail[$i] = $item;
+        }
+
+        $body['detail'] = $detail;
+
+        return $body;
     }
 
     /**

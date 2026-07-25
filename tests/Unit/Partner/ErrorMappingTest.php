@@ -116,6 +116,12 @@ final class ErrorMappingTest extends TestCase
                 'return_url' => ['Field required'],
                 'amount' => ['Input should be greater than 0'],
             ], $e->errors());
+
+            // Masking a bare `input` must not touch values of non-sensitive fields.
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $this->assertSame(['amount' => -5], $body['detail'][0]['input']);
+            $this->assertSame(-5, $body['detail'][1]['input']);
         }
     }
 
@@ -364,6 +370,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    // Constructed, not verbatim: pairs a field-level loc with the parent-dict `input` Pydantic
+    // sends for `missing`, so one fixture covers the keyed-recursion arm.
     public function test_thrown_exception_body_is_masked(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -392,6 +400,56 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    // A field-level rejection echoes the bare failing value under `input`, where no key names it.
+    public function test_bare_pan_echo_in_detail_input_is_masked(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'string_pattern_mismatch',
+                    'loc' => ['body', 'card_number'],
+                    'msg' => 'String should match pattern \'^[0-9]{16}$\'',
+                    'input' => '8600123412341234',
+                ],
+            ],
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->checkout()->create(
+                amount: 120000, externalId: 'ORD-9', provider: 'card',
+                cardNumber: '8600123412341234', expireDate: '3003',
+            );
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $this->assertSame('860012******1234', $body['detail'][0]['input']);
+        }
+    }
+
+    public function test_bare_secret_echo_in_detail_input_is_dropped(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => [
+                [
+                    'type' => 'string_too_short',
+                    'loc' => ['body', 'secret_key'],
+                    'msg' => 'String should have at least 32 characters',
+                    'input' => 'whsec_live_X',
+                ],
+            ],
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->webhooks()->create('https://app.test/hooks', 'whsec_live_X');
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $this->assertSame('***', $body['detail'][0]['input']);
+        }
+    }
+
     public function test_thrown_exception_string_body_is_truncated(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(str_repeat('x', 2000), 502)]);
@@ -401,6 +459,26 @@ final class ErrorMappingTest extends TestCase
             $this->fail('expected ServerException');
         } catch (ServerException $e) {
             $this->assertSame(str_repeat('x', 500), $e->responseBody);
+        }
+    }
+
+    // Byte 500 of this page lands inside a two-byte codepoint; a blind cut leaves the body
+    // unencodable, and json_encode of the exception context then fails wholesale.
+    public function test_thrown_exception_string_body_stays_valid_utf8(): void
+    {
+        $page = '<html><h1>502 Bad Gateway</h1><p>'
+            .str_repeat('Ошибка шлюза, повторите запрос позже. ', 60)
+            .'</p></html>';
+        Http::fake(['api.wlcm.test/*' => Http::response($page, 502)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertTrue(mb_check_encoding($body, 'UTF-8'));
+            $this->assertNotFalse(json_encode($body));
         }
     }
 
