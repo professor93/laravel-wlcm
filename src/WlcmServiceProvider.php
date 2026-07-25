@@ -26,7 +26,7 @@ final class WlcmServiceProvider extends ServiceProvider
             __DIR__.'/../config/wlcm.php' => config_path('wlcm.php'),
         ], 'wlcm-config');
 
-        $this->publishes([
+        $this->publishesMigrations([
             __DIR__.'/../database/migrations' => database_path('migrations'),
         ], 'wlcm-migrations');
 
