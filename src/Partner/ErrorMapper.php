@@ -58,19 +58,28 @@ final class ErrorMapper
         if (is_array($body)) {
             /** @var array<string, mixed> $body */
             $detail = $body['detail'] ?? $body['message'] ?? null;
+            $detailCode = null;
 
-            if (is_array($detail)) {
+            // A LIST detail is pydantic's validation array; a DICT one is this API's own
+            // {message, code, suggestions} envelope. Reading the dict as a list threw both away.
+            if (is_array($detail) && array_is_list($detail)) {
                 [$detailMessage, $errors] = self::parseFastApiDetail($detail);
                 $message = $detailMessage ?? $message;
+            } elseif (is_array($detail)) {
+                $detailMessage = $detail['message'] ?? null;
+                $message = is_scalar($detailMessage) ? (string) $detailMessage : $message;
+                $detailCode = $detail['code'] ?? null;
             } elseif ($detail !== null) {
                 /** @var WlcmJsonScalar $detail */
                 $message = (string) $detail;
             }
 
             $code = $body['code'] ?? null;
-            // Machine codes live in `code`, or arrive as bare snake_case detail string.
+            // Machine codes live in `code`, inside a dict detail, or arrive as bare snake_case
+            // detail string. Live codes are UPPER_CASE and have no enum case: pass them raw.
             $errorCode = match (true) {
                 is_string($code) && $code !== '' => $code,
+                is_string($detailCode) && $detailCode !== '' => $detailCode,
                 is_string($detail) && preg_match('/^[a-z0-9_]+$/', $detail) === 1 => $detail,
                 default => null,
             };

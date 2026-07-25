@@ -156,6 +156,90 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    // Verbatim apidev body for GET /orders/999999999/status.
+    public function test_404_object_detail_keeps_its_message_and_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => '999999999 ID raqamli buyurtma topilmadi. Iltimos, buyurtma raqamini tekshiring.',
+            'code' => 'ORDER_NOT_FOUND',
+            'suggestions' => ['Buyurtma raqamini qayta tekshiring', 'Buyurtma mavjudligini tekshiring'],
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/999999999/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame(
+                '999999999 ID raqamli buyurtma topilmadi. Iltimos, buyurtma raqamini tekshiring.',
+                $e->getMessage(),
+            );
+            // Live codes are upper case and have no enum case; the raw string still rides.
+            $this->assertSame('ORDER_NOT_FOUND', $e->errorCode());
+            $this->assertNull($e->errorCodeEnum());
+        }
+    }
+
+    // A dict detail is not a pydantic error list, so nothing may land in errors().
+    public function test_422_object_detail_yields_no_field_errors(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'amount too small', 'code' => 'AMOUNT_TOO_SMALL',
+        ]], 422)]);
+
+        try {
+            Wlcm::partner()->post('/integrations/checkout', ['amount' => 1]);
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame('amount too small', $e->getMessage());
+            $this->assertSame('AMOUNT_TOO_SMALL', $e->errorCode());
+            $this->assertSame([], $e->errors());
+        }
+    }
+
+    public function test_object_detail_without_message_or_code_degrades_to_the_reason(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => ['suggestions' => ['retry']]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('Not Found', $e->getMessage());
+            $this->assertNull($e->errorCode());
+        }
+    }
+
+    public function test_top_level_code_still_outranks_an_object_detail_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => ['message' => 'no funds', 'code' => 'DETAIL_CODE'],
+            'code' => 'insufficient_funds',
+        ], 402)]);
+
+        try {
+            Wlcm::partner()->get('/payments/1');
+            $this->fail('expected InsufficientFundsException');
+        } catch (InsufficientFundsException $e) {
+            $this->assertSame('no funds', $e->getMessage());
+            $this->assertSame('insufficient_funds', $e->errorCode());
+        }
+    }
+
+    public function test_object_detail_message_is_pan_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'no order for card 4111111111111111',
+            'code' => 'ORDER_NOT_FOUND',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('no order for card 411111***1111', $e->getMessage());
+        }
+    }
+
     public function test_non_json_body_falls_back_to_reason(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response('gateway exploded', 502)]);

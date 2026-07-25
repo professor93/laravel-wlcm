@@ -53,6 +53,8 @@ Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::par
 - `Wlcm::partner()->payments()->confirmPaylov($transactionId, $otp)` — UNVERIFIED: camelCase body from sandbox console, not confirmed live
 - `Wlcm::partner()->webhooks()` — `create($url, $secret)`, `all()`, `update()`, `events()` (delivery history), `delete()`. `secret_key` chosen at create goes into `WLCM_WEBHOOK_SECRET`
 
+Error bodies come in three `detail` shapes and all three are read: a `{message, code, suggestions}` object (`getMessage()` from `message`, `errorCode()` from `code`), a plain string (`getMessage()`, plus `errorCode()` when it is bare snake_case), and pydantic's validation list (`getMessage()` from the first entry, field map on `errors()`). A top-level `code` outranks anything in `detail`. `errorCode()` hands back exactly what the server sent, so live UPPER_CASE codes like `ORDER_NOT_FOUND` arrive intact — `errorCodeEnum()` has no case for those and returns null, so match on `errorCode()` unless you know the code is in `WlcmErrorCode`.
+
 ## Subscriptions
 
 Recurring charge on bound card. Partner calls HMAC-signed; card attach/confirm/activate = unsigned end-user calls. Lifecycle: `pending → card_attached → active → cancelled/expired`, plus `paused` after 3 failed charges. `cancel()` returns updated `Subscription`.
