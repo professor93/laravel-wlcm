@@ -162,7 +162,7 @@ With it on, both families dedupe: payment deliveries keyed `(connection, payment
 
 **Handlers must be idempotent.** `processed_at` is stamped only after your handler returns, so a crash mid-dispatch leaves the row claimed but unprocessed and the next redelivery runs the whole dispatch again — events included. At-least-once, not exactly-once.
 
-With `wlcm.storage.logs` on, `wlcm_logs.result` records the verdict: `ok` dispatched, `duplicate` this delivery was already processed, `stale` a payment delivery that would move a row out of a terminal state (2 / -1 / -2) into anything but a cancel (-2). Subscription deliveries only ever log `ok` or `duplicate`.
+With `wlcm.storage.logs` on, the delivery's log entry carries a `result` recording the verdict: `ok` dispatched, `duplicate` this delivery was already processed, `stale` a payment delivery that would move a row out of a terminal state (2 / -1 / -2) into anything but a cancel (-2). Subscription deliveries only ever log `ok` or `duplicate`.
 
 **Do not rely on webhooks alone.** Live deliveries are effectively at-most-once: failed delivery recorded with `attempts: 1`, no retry scheduled. Reconcile by polling — for orders still pending on your side, call `Wlcm::partner()->orders()->status($orderId)` and settle from `isPaid`/`stateEnum()`.
 
@@ -212,15 +212,17 @@ Schedule::command('model:prune', ['--model' => [
 ]])->daily();
 ```
 
-`prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
+`prune_days` is the age window over every `wlcm_logs` row and over the `wlcm_transactions` rows that already carry `processed_at` — an in-flight delivery is never pruned out from under the dedupe check. Null or non-numeric switches that window off: `wlcm_logs` then prunes nothing at all, while `wlcm_transactions` still answers to `stale_days` below. Numeric values clamp to a floor of 1 day. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
 
-`stale_days` is a second, independent window over `wlcm_transactions` — off by default. It reaps only abandoned checkouts: rows no webhook ever claimed, so `processed_at`, `payment_id` and `delivery_key` are all null. A claimed row still holding `processed_at` null is a delivery that crashed mid-dispatch, and neither window reaps it at any setting — reaping one makes WLCM's next redelivery look fresh and re-runs your handlers. Reaping an abandoned checkout costs only the checkout-time linkage: a late webhook for it still dispatches, as a new row. The two windows disable and clamp separately (null or non-numeric off, numeric floors at 1 day); a prune run applies whichever are set.
+`stale_days` is a second, independent window over `wlcm_transactions` — off by default. It reaps only abandoned checkouts: rows no webhook ever claimed, so `processed_at`, `payment_id` and `delivery_key` are all null. A claimed row still holding `processed_at` null is a delivery that crashed mid-dispatch, and neither window reaps it at any setting — reaping one makes WLCM's next redelivery look fresh and re-runs your handlers. Reaping an abandoned checkout costs only the checkout-time linkage: a late webhook for it still dispatches, as a new row. The two windows disable and clamp independently; a prune run applies whichever are set.
 
-`prune_days` covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has.
+Pruning covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has.
 
 A failing audit sink is swallowed and `report()`ed so it never breaks a payment call — but if the app's default log channel is broken too, `report()` itself can throw and surface to the caller. Keep that channel healthy.
 
 Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface; rebind it to send audit entries somewhere none of the shipped drivers reach.
+
+Transaction rows go through `Uzbek\Wlcm\Storage\TransactionStore` (shipped binding: `TransactionRecorder`); rebind it to keep checkout and webhook-dedupe state outside `wlcm_transactions`. Both bindings are singletons handed to the manager at construction — rebind before the first `Wlcm::` call of the process, or the clients keep the old one.
 
 ## Testing
 
