@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Partner\Resources;
 use Uzbek\Wlcm\Partner\Data\WebhookInfo;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
+/**
+ * @phpstan-import-type WebhookInfoShape from WebhookInfo
+ */
 final readonly class Webhooks
 {
     public function __construct(private PartnerClient $client) {}

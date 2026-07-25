@@ -9,6 +9,9 @@ use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
+/**
+ * @phpstan-import-type CheckoutResponseShape from CheckoutResponse
+ */
 final readonly class Checkout
 {
     public function __construct(private PartnerClient $client) {}

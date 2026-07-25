@@ -6,6 +6,9 @@ namespace Uzbek\Wlcm\Webhooks;
 
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-type SubscriptionWebhookPayloadShape array{event?: WlcmJsonScalar, external_order_id?: WlcmJsonScalar, external_user_id?: WlcmJsonScalar, subscription_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, timestamp?: WlcmJsonScalar, signature?: WlcmJsonScalar}
+ */
 final readonly class SubscriptionWebhookPayload
 {
     public function __construct(

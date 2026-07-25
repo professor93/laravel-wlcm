@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type PaymentProviderInfoShape array{name?: WlcmJsonScalar, label?: WlcmJsonScalar, sort_order?: WlcmJsonScalar, is_active?: WlcmJsonScalar, icon?: WlcmJsonScalar}
+ */
 final readonly class PaymentProviderInfo
 {
     /** @param array<string, mixed> $raw */

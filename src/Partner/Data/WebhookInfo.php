@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type WebhookInfoShape array{id?: WlcmJsonScalar, url?: WlcmJsonScalar, secret_key?: WlcmJsonScalar, is_active?: WlcmJsonScalar, events?: array<int, mixed>, last_triggered_at?: WlcmJsonScalar, last_status_code?: WlcmJsonScalar, created_at?: WlcmJsonScalar}
+ */
 final readonly class WebhookInfo
 {
     /**

@@ -11,6 +11,10 @@ use Uzbek\Wlcm\Partner\Data\OtpConfirmResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-import-type OtpConfirmResponseShape from OtpConfirmResponse
+ * @phpstan-import-type SplitResponseShape from Data\SplitResponse
+ */
 final readonly class Payments
 {
     public function __construct(private PartnerClient $client) {}

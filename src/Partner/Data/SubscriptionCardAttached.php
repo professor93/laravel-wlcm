@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type SubscriptionCardAttachedShape array{card_id?: WlcmJsonScalar, otp_sent_phone?: WlcmJsonScalar, reused?: WlcmJsonScalar}
+ */
 final readonly class SubscriptionCardAttached
 {
     /** @param array<string, mixed> $raw */

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type FiscalRegisterResponseShape array{message?: WlcmJsonScalar, fiscal_id?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar}
+ */
 final readonly class FiscalRegisterResponse
 {
     public function __construct(

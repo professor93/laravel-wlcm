@@ -9,6 +9,10 @@ use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 
+/**
+ * @phpstan-import-type PartnerClientConfigShape from PartnerClient
+ * @phpstan-import-type WlcmHttpShape from PartnerClient
+ */
 final class Connection
 {
     private ?PartnerClient $partner = null;

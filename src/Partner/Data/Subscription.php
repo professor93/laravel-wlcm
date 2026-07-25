@@ -6,6 +6,9 @@ namespace Uzbek\Wlcm\Partner\Data;
 
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-type SubscriptionShape array{id?: WlcmJsonScalar, partner_id?: WlcmJsonScalar, external_order_id?: WlcmJsonScalar, external_user_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, last_payment_id?: WlcmJsonScalar, card_number_masked?: WlcmJsonScalar, card_vendor?: WlcmJsonScalar, last_payment_status?: WlcmJsonScalar, last_payment_amount?: WlcmJsonScalar, last_payment_at?: WlcmJsonScalar, last_payment_transaction_id?: WlcmJsonScalar, last_fiscal_number?: WlcmJsonScalar, return_url?: WlcmJsonScalar, partner_logo_url?: WlcmJsonScalar, created_at?: WlcmJsonScalar}
+ */
 final readonly class Subscription
 {
     /** @param array<string, mixed> $raw */

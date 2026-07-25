@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type OtpConfirmResponseShape array{success?: WlcmJsonScalar, order_id?: WlcmJsonScalar, message?: WlcmJsonScalar}
+ */
 final readonly class OtpConfirmResponse
 {
     public function __construct(

@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Partner\Data;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-type OrderStatusShape array{order_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, status?: WlcmJsonScalar, state?: WlcmJsonScalar, is_paid?: WlcmJsonScalar, is_pending?: WlcmJsonScalar, is_cancelled?: WlcmJsonScalar, is_completed?: WlcmJsonScalar, status_explanation?: array<string, mixed>, extra_data?: array<string, mixed>, payment_id?: WlcmJsonScalar, gateway?: WlcmJsonScalar, transaction_id?: WlcmJsonScalar, performed_at?: WlcmJsonScalar}
+ */
 final readonly class OrderStatus
 {
     /**

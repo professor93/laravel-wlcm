@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type FiscalReceiptShape array{id: WlcmJsonScalar, payment_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, receipt_type?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar}
+ */
 final readonly class FiscalReceipt
 {
     public function __construct(

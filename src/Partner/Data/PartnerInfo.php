@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type PartnerInfoShape array{id: WlcmJsonScalar, name: WlcmJsonScalar, company_name?: WlcmJsonScalar, receipt_item_name?: WlcmJsonScalar, email?: WlcmJsonScalar, phone?: WlcmJsonScalar, partner_type?: WlcmJsonScalar, status?: WlcmJsonScalar, is_active?: WlcmJsonScalar, created_at?: WlcmJsonScalar, sub_partners?: array<int, array<string, mixed>>, cancel_payment_enabled?: WlcmJsonScalar, show_phone_number?: WlcmJsonScalar}
+ */
 final readonly class PartnerInfo
 {
     /**

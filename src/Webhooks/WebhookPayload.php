@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Webhooks;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-type WebhookPayloadShape array{external_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, amount?: WlcmJsonScalar, state?: WlcmJsonScalar, provider?: WlcmJsonScalar, timestamp?: WlcmJsonScalar, signature?: WlcmJsonScalar}
+ */
 final readonly class WebhookPayload
 {
     public readonly int $state;

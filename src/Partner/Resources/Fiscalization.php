@@ -10,6 +10,11 @@ use Uzbek\Wlcm\Partner\Data\FiscalRefundResponse;
 use Uzbek\Wlcm\Partner\Data\FiscalRegisterResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
+/**
+ * @phpstan-import-type FiscalReceiptShape from FiscalReceipt
+ * @phpstan-import-type FiscalRefundResponseShape from FiscalRefundResponse
+ * @phpstan-import-type FiscalRegisterResponseShape from FiscalRegisterResponse
+ */
 final readonly class Fiscalization
 {
     public function __construct(private PartnerClient $client) {}

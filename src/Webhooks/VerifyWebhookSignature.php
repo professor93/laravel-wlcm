@@ -10,6 +10,10 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 
+/**
+ * @phpstan-import-type WebhookPayloadShape from WebhookPayload
+ * @phpstan-import-type SubscriptionWebhookPayloadShape from SubscriptionWebhookPayload
+ */
 final readonly class VerifyWebhookSignature
 {
     private const array REQUIRED_PAYMENT = ['order_id', 'payment_id', 'amount', 'state', 'timestamp'];

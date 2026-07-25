@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type FiscalRefundResponseShape array{message?: WlcmJsonScalar, fiscal_id?: WlcmJsonScalar}
+ */
 final readonly class FiscalRefundResponse
 {
     public function __construct(

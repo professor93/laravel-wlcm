@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Partner\Data;
 use Uzbek\Wlcm\Enums\WlcmErrorCode;
 
 // Charge returns HTTP 200 for both outcomes; a failed charge is data, not an exception.
+/**
+ * @phpstan-type SubscriptionChargeResultShape array{status?: WlcmJsonScalar, payment_id?: WlcmJsonScalar, message?: WlcmJsonScalar}
+ */
 final readonly class SubscriptionChargeResult
 {
     /** @param array<string, mixed> $raw */

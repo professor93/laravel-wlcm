@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-import-type SplitRecipientShape from SplitRecipient
+ *
+ * @phpstan-type SplitResponseShape array{payment_id: WlcmJsonScalar, split_type?: WlcmJsonScalar, total_recipients?: WlcmJsonScalar, total_split_amount?: int|float|string|null, splits?: array<int, SplitRecipientShape>}
+ */
 final readonly class SplitResponse
 {
     /**

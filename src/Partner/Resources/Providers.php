@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Partner\Resources;
 use Uzbek\Wlcm\Partner\Data\PaymentProviderInfo;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
+/**
+ * @phpstan-import-type PaymentProviderInfoShape from PaymentProviderInfo
+ */
 final readonly class Providers
 {
     public function __construct(private PartnerClient $client) {}

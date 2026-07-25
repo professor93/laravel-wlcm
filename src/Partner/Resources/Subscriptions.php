@@ -10,6 +10,11 @@ use Uzbek\Wlcm\Partner\Data\SubscriptionChargeResult;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\Tiyin;
 
+/**
+ * @phpstan-import-type SubscriptionShape from Subscription
+ * @phpstan-import-type SubscriptionCardAttachedShape from SubscriptionCardAttached
+ * @phpstan-import-type SubscriptionChargeResultShape from SubscriptionChargeResult
+ */
 final readonly class Subscriptions
 {
     public function __construct(private PartnerClient $client) {}

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+/**
+ * @phpstan-type SplitRecipientShape array{id: WlcmJsonScalar, recipient_type: WlcmJsonScalar, recipient_id: WlcmJsonScalar, split_type: WlcmJsonScalar, amount?: int|float|string|null, percent_value?: int|float|string|null, state?: WlcmJsonScalar, state_text?: WlcmJsonScalar}
+ */
 final readonly class SplitRecipient
 {
     public function __construct(

@@ -12,6 +12,10 @@ use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\Masker;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 
+/**
+ * @phpstan-type PartnerClientConfigShape array{base_url: WlcmJsonScalar, api_key: WlcmJsonScalar, api_secret: WlcmJsonScalar, split_amount_unit?: WlcmJsonScalar}
+ * @phpstan-type WlcmHttpShape array{get_retries?: WlcmJsonScalar, timeout?: WlcmJsonScalar, connect_timeout?: WlcmJsonScalar}
+ */
 final class PartnerClient
 {
     private ?RequestSigner $signer = null;

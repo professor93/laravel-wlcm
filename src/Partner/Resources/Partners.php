@@ -7,6 +7,9 @@ namespace Uzbek\Wlcm\Partner\Resources;
 use Uzbek\Wlcm\Partner\Data\PartnerInfo;
 use Uzbek\Wlcm\Partner\PartnerClient;
 
+/**
+ * @phpstan-import-type PartnerInfoShape from PartnerInfo
+ */
 final readonly class Partners
 {
     // Sandbox-verified: docs code examples sign /integrations/me, which 404s.

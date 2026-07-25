@@ -6,6 +6,9 @@ namespace Uzbek\Wlcm\Partner\Data;
 
 use Uzbek\Wlcm\Enums\PaymentState;
 
+/**
+ * @phpstan-type CheckoutResponseShape array{order_id: WlcmJsonScalar, external_id?: WlcmJsonScalar, state?: WlcmJsonScalar, checkout_url?: WlcmJsonScalar, message?: WlcmJsonScalar, transaction_id?: WlcmJsonScalar, otp_sent_phone?: WlcmJsonScalar, cid?: WlcmJsonScalar}
+ */
 final readonly class CheckoutResponse
 {
     public function __construct(
