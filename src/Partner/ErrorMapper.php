@@ -33,7 +33,7 @@ final class ErrorMapper
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    responseBody: mb_strcut($response->body(), 0, 500, 'UTF-8'),
+                    responseBody: Masker::scrubPans(mb_strcut($response->body(), 0, 500, 'UTF-8')),
                 );
             }
 
@@ -79,10 +79,11 @@ final class ErrorMapper
         /** @var array<string, list<string>> $errors */
         $errors = self::scrubPanProse($errors);
 
-        // Derivation above reads the RAW body on purpose; only responseBody is key-masked —
-        // message/errors keep server prose minus PANs. FastAPI echoes the submitted payload there.
+        // Derivation above reads the RAW body on purpose. Every surface that leaves on the
+        // exception is PAN-scrubbed: message/errors keep server prose minus PANs, and responseBody
+        // is additionally key-masked — FastAPI echoes the submitted payload there.
         $exposedBody = match (true) {
-            is_array($body) => Masker::mask(self::maskDetailInputs($body)),
+            is_array($body) => self::scrubPanProse(Masker::mask(self::maskDetailInputs($body))),
             // Cut on a codepoint boundary: a half character makes json_encode of the whole
             // exception context fail.
             is_string($body) => Masker::scrubPans(mb_strcut($body, 0, 500, 'UTF-8')),
@@ -152,20 +153,20 @@ final class ErrorMapper
     }
 
     /**
-     * @param  array<array-key, mixed>  $errors
+     * @param  array<array-key, mixed>  $data
      * @return array<array-key, mixed>
      */
-    private static function scrubPanProse(array $errors): array
+    private static function scrubPanProse(array $data): array
     {
-        foreach ($errors as $key => $value) {
-            $errors[$key] = match (true) {
+        foreach ($data as $key => $value) {
+            $data[$key] = match (true) {
                 is_string($value) => Masker::scrubPans($value),
                 is_array($value) => self::scrubPanProse($value),
                 default => $value,
             };
         }
 
-        return $errors;
+        return $data;
     }
 
     /**

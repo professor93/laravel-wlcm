@@ -519,7 +519,24 @@ final class ErrorMappingTest extends TestCase
         Wlcm::partner()->orders()->status(410);
     }
 
-    public function test_pan_in_detail_prose_is_scrubbed_from_message_and_errors(): void
+    public function test_pan_in_malformed_200_body_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            '<html>upstream refused card 8600123456789012</html>', 200, ['Content-Type' => 'text/html'],
+        )]);
+
+        try {
+            Wlcm::partner()->orders()->status(410);
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $body = $e->responseBody;
+            $this->assertIsString($body);
+            $this->assertStringContainsString('860012***9012', $body);
+            $this->assertStringNotContainsString('8600123456789012', $body);
+        }
+    }
+
+    public function test_pan_in_detail_prose_is_scrubbed_from_message_errors_and_body(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
             'detail' => [
@@ -545,6 +562,30 @@ final class ErrorMappingTest extends TestCase
                 ['card_number' => ['Value error, card 860012***9012 is blocked']],
                 $e->errors(),
             );
+
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $detail = $body['detail'];
+            $this->assertIsArray($detail);
+            $this->assertIsArray($detail[0]);
+            $this->assertSame('Value error, card 860012***9012 is blocked', $detail[0]['msg']);
+            $this->assertSame('860012******9012', $detail[0]['input']);
+        }
+    }
+
+    public function test_pan_in_scalar_detail_is_scrubbed_from_response_body(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['detail' => 'Card 8600123456789012 already settled'], 409,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->cancel(172);
+            $this->fail('expected ConflictException');
+        } catch (ConflictException $e) {
+            $body = $e->responseBody;
+            $this->assertIsArray($body);
+            $this->assertSame('Card 860012***9012 already settled', $body['detail']);
         }
     }
 
