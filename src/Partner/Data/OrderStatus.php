@@ -76,7 +76,9 @@ final readonly class OrderStatus
         return $this->state === null ? null : PaymentState::tryFrom($this->state);
     }
 
-    // `gateway` is the provider that took the money, display-cased like the catalogue.
+    // `gateway` is the provider that took the money. Every observed value is lower case
+    // (mock_payme, mock_click), unlike the display-cased catalogue; resolved case-
+    // insensitively so it does not matter which the server sends.
     public function gatewayEnum(): ?PaymentProvider
     {
         return $this->gateway === null ? null : PaymentProvider::fromName($this->gateway);

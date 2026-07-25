@@ -8,9 +8,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use ReflectionClass;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Storage\ColumnFit;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
 use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
@@ -65,6 +67,45 @@ final class AuditColumnWidthTest extends TestCase
                 }
             }
         }
+    }
+
+    /**
+     * ColumnFit hand-copies the migration widths, and sqlite drops varchar lengths
+     * entirely — Schema::getColumns reports a bare `varchar` — so the shipped migration
+     * source is the only offline truth to compare against. Edit a width there and this
+     * fails instead of silently letting the fitter cut to a stale number.
+     */
+    public function test_the_width_map_matches_the_shipped_migrations(): void
+    {
+        $declared = [];
+
+        foreach ((array) glob(__DIR__.'/../../database/migrations/*.php') as $file) {
+            preg_match_all(
+                "/->string\('([a-z_]+)',\s*(\d+)\)/",
+                (string) file_get_contents((string) $file),
+                $matches,
+                PREG_SET_ORDER,
+            );
+
+            foreach ($matches as $match) {
+                $column = $match[1];
+                $width = (int) $match[2];
+
+                // ColumnFit keys by column name alone, so one name must mean one width.
+                if (isset($declared[$column]) && $declared[$column] !== $width) {
+                    $this->fail("column {$column} is declared at two widths; ColumnFit cannot represent that");
+                }
+
+                $declared[$column] = $width;
+            }
+        }
+
+        $widths = (new ReflectionClass(ColumnFit::class))->getConstant('WIDTHS');
+        $this->assertIsArray($widths);
+        ksort($declared);
+        ksort($widths);
+
+        $this->assertSame($declared, $widths);
     }
 
     public function test_a_checkout_with_an_over_long_external_id_still_leaves_both_audit_rows(): void

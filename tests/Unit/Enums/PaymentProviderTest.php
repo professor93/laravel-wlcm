@@ -87,6 +87,10 @@ final class PaymentProviderTest extends TestCase
         $paid = OrderStatus::fromArray(['order_id' => 410, 'gateway' => 'Click']);
         $this->assertSame(PaymentProvider::Click, $paid->gatewayEnum());
         $this->assertNull(OrderStatus::fromArray(['order_id' => 410])->gatewayEnum());
-        $this->assertNull(OrderStatus::fromArray(['order_id' => 410, 'gateway' => 'mock_payme'])->gatewayEnum());
+
+        // Both gateway values the sandbox actually returned; neither has an enum case.
+        foreach (['mock_payme', 'mock_click'] as $gateway) {
+            $this->assertNull(OrderStatus::fromArray(['order_id' => 410, 'gateway' => $gateway])->gatewayEnum());
+        }
     }
 }
