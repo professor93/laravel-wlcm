@@ -25,7 +25,7 @@ final class DatabaseLogStore implements LogStore
         array $ids = [],
         string $result = 'ok',
     ): void {
-        if (! (bool) config('wlcm.storage.logs', false)) {
+        if (! $this->enabled()) {
             return;
         }
 
@@ -55,7 +55,7 @@ final class DatabaseLogStore implements LogStore
     /** @param array<string, mixed> $payload */
     public function webhook(string $connection, array $payload, string $result): void
     {
-        if (! (bool) config('wlcm.storage.logs', false)) {
+        if (! $this->enabled()) {
             return;
         }
 
@@ -77,5 +77,12 @@ final class DatabaseLogStore implements LogStore
         } catch (Throwable $e) {
             report($e); // Audit write must never break a payment call.
         }
+    }
+
+    private function enabled(): bool
+    {
+        $driver = config('wlcm.storage.logs', false);
+
+        return $driver === 'database' || $driver === true;
     }
 }

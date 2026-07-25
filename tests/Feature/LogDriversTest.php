@@ -1,0 +1,496 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Uzbek\Wlcm\Tests\Feature;
+
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Monolog\Handler\TestHandler;
+use Monolog\LogRecord;
+use RuntimeException;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Facades\Wlcm;
+use Uzbek\Wlcm\Models\WlcmLog;
+use Uzbek\Wlcm\Storage\DatabaseLogStore;
+use Uzbek\Wlcm\Storage\FileLogStore;
+use Uzbek\Wlcm\Storage\LogChannelLogStore;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Tests\TestCase;
+
+final class LogDriversTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private ?string $dir = null;
+
+    protected function defineDatabaseMigrations(): void
+    {
+        $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+    }
+
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        $app['config']->set('logging.default', 'wlcm_default');
+        $app['config']->set('logging.channels.wlcm_default', ['driver' => 'monolog', 'handler' => TestHandler::class]);
+        $app['config']->set('logging.channels.wlcm_capture', ['driver' => 'monolog', 'handler' => TestHandler::class]);
+    }
+
+    /** @return list<LogRecord> */
+    private function records(string $channel): array
+    {
+        /** @var TestHandler $handler */
+        $handler = Log::channel($channel)->getLogger()->getHandlers()[0];
+
+        return array_values(array_filter(
+            $handler->getRecords(),
+            static fn (LogRecord $record): bool => $record->message === 'wlcm',
+        ));
+    }
+
+    protected function tearDown(): void
+    {
+        $default = storage_path('logs/wlcm.jsonl');
+
+        if (is_file($default)) {
+            unlink($default);
+        }
+
+        if ($this->dir !== null && is_dir($this->dir)) {
+            self::rmrf($this->dir);
+        }
+
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
+    private static function rmrf(string $dir): void
+    {
+        foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $entry) {
+            $path = $dir.'/'.$entry;
+            is_dir($path) ? self::rmrf($path) : unlink($path);
+        }
+
+        rmdir($dir);
+    }
+
+    private function dir(): string
+    {
+        return $this->dir ??= sys_get_temp_dir().'/wlcm-log-drivers-'.bin2hex(random_bytes(6));
+    }
+
+    private function path(string $name = 'wlcm.jsonl'): string
+    {
+        return $this->dir().'/'.$name;
+    }
+
+    private function useFileDriver(?string $path = null): string
+    {
+        $path ??= $this->path();
+        config(['wlcm.storage.logs' => 'file', 'wlcm.storage.logs_path' => $path]);
+
+        return $path;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function lines(string $path): array
+    {
+        $raw = trim((string) file_get_contents($path));
+
+        return array_map(
+            static fn (string $line): array => (array) json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+            array_values(array_filter(explode("\n", $raw), static fn (string $l): bool => $l !== '')),
+        );
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function captureLogContexts(callable $callback): array
+    {
+        $contexts = [];
+        Event::listen(MessageLogged::class, function (MessageLogged $e) use (&$contexts): void {
+            $contexts[] = ['level' => $e->level, 'message' => $e->message, 'context' => $e->context];
+        });
+
+        $callback();
+
+        return $contexts;
+    }
+
+    private function fakeCheckout(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'ORD-9', 'state' => 0,
+            'checkout_url' => 'https://c.test/x', 'message' => null,
+        ], 201)]);
+    }
+
+    private function checkout(): void
+    {
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+    }
+
+    private function cardCheckout(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 1], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
+            cardNumber: '9860991234569999', expireDate: '3003',
+        );
+    }
+
+    /** @return array<string, string> */
+    private function webhookData(): array
+    {
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', "1254:7788:2:{$data['timestamp']}", 'whsec_test');
+
+        return $data;
+    }
+
+    public function test_true_resolves_the_database_driver(): void
+    {
+        config(['wlcm.storage.logs' => true]);
+
+        $this->assertInstanceOf(DatabaseLogStore::class, $this->app->make(LogStore::class));
+    }
+
+    public function test_database_string_resolves_the_database_driver(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertSame('out', WlcmLog::sole()->direction);
+    }
+
+    public function test_false_resolves_the_database_driver_and_writes_nothing(): void
+    {
+        config(['wlcm.storage.logs' => false]);
+        $this->fakeCheckout();
+
+        $this->assertInstanceOf(DatabaseLogStore::class, $this->app->make(LogStore::class));
+
+        $this->checkout();
+
+        $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_file_driver_resolves_the_file_store(): void
+    {
+        $this->useFileDriver();
+
+        $this->assertInstanceOf(FileLogStore::class, $this->app->make(LogStore::class));
+    }
+
+    public function test_log_driver_resolves_the_log_channel_store(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $this->assertInstanceOf(LogChannelLogStore::class, $this->app->make(LogStore::class));
+    }
+
+    public function test_unknown_driver_throws_at_resolution(): void
+    {
+        config(['wlcm.storage.logs' => 'syslog']);
+
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('wlcm.storage.logs');
+
+        $this->app->make(LogStore::class);
+    }
+
+    public function test_unknown_driver_fails_the_payment_call_closed(): void
+    {
+        config(['wlcm.storage.logs' => 'syslog']);
+        $this->fakeCheckout();
+
+        $this->expectException(MissingConfigurationException::class);
+
+        $this->checkout();
+    }
+
+    public function test_file_driver_appends_one_json_line_per_entry(): void
+    {
+        $path = $this->useFileDriver();
+        $this->fakeCheckout();
+
+        $this->checkout();
+        $this->checkout();
+
+        $lines = $this->lines($path);
+        $this->assertCount(2, $lines);
+        $this->assertSame('out', $lines[0]['direction']);
+        $this->assertSame('main', $lines[0]['connection']);
+        $this->assertSame('partner', $lines[0]['api']);
+        $this->assertSame('POST', $lines[0]['method']);
+        $this->assertSame('/api/v1/integrations/checkout', $lines[0]['path']);
+        $this->assertSame(201, $lines[0]['status_code']);
+        $this->assertSame('ok', $lines[0]['result']);
+        $this->assertSame('1254', $lines[0]['order_id']);
+        $this->assertIsInt($lines[0]['duration_ms']);
+        $this->assertIsString($lines[0]['created_at']);
+        $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_file_driver_creates_the_missing_directory(): void
+    {
+        $path = $this->useFileDriver($this->dir().'/nested/deeper/audit.jsonl');
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertFileExists($path);
+        $this->assertCount(1, $this->lines($path));
+    }
+
+    public function test_file_driver_defaults_to_the_storage_path(): void
+    {
+        config(['wlcm.storage.logs' => 'file', 'wlcm.storage.logs_path' => null]);
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertFileExists(storage_path('logs/wlcm.jsonl'));
+    }
+
+    public function test_file_driver_trims_a_padded_path(): void
+    {
+        $path = $this->path();
+        $this->useFileDriver("  {$path}  ");
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertFileExists($path);
+    }
+
+    public function test_file_driver_never_writes_a_bare_pan(): void
+    {
+        $path = $this->useFileDriver();
+
+        $this->cardCheckout();
+
+        $contents = (string) file_get_contents($path);
+        $this->assertStringNotContainsString('9860991234569999', $contents);
+        $this->assertStringContainsString('986099******9999', $contents);
+        $this->assertSame('***', $this->lines($path)[0]['request_body']['expire_date']);
+    }
+
+    public function test_file_driver_records_webhook_deliveries(): void
+    {
+        $path = $this->useFileDriver();
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $entry = $this->lines($path)[0];
+        $this->assertSame('webhook', $entry['direction']);
+        $this->assertSame('ok', $entry['result']);
+        $this->assertSame('7788', $entry['payment_id']);
+        $this->assertSame('ORD-1', $entry['request_body']['external_id']);
+    }
+
+    public function test_file_driver_reports_an_unwritable_path_without_breaking_the_call(): void
+    {
+        mkdir($this->dir(), 0777, true);
+        file_put_contents($this->dir().'/blocker', 'x');
+        $this->useFileDriver($this->dir().'/blocker/wlcm.jsonl');
+        Exceptions::fake();
+        $this->fakeCheckout();
+
+        $result = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+
+        $this->assertSame('https://c.test/x', $result->checkoutUrl);
+        Exceptions::assertReported(RuntimeException::class);
+    }
+
+    public function test_log_driver_sends_the_entry_to_the_default_channel(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+        $this->fakeCheckout();
+
+        $logged = $this->captureLogContexts(fn () => $this->checkout());
+
+        $this->assertCount(1, $logged);
+        $this->assertSame('info', $logged[0]['level']);
+        $this->assertSame('wlcm', $logged[0]['message']);
+        $this->assertSame('out', $logged[0]['context']['direction']);
+        $this->assertSame(201, $logged[0]['context']['status_code']);
+        $this->assertCount(1, $this->records('wlcm_default'));
+        $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_log_driver_uses_the_configured_channel(): void
+    {
+        config(['wlcm.storage.logs' => 'log', 'wlcm.storage.logs_channel' => 'wlcm_capture']);
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertCount(1, $this->records('wlcm_capture'));
+        $this->assertSame('out', $this->records('wlcm_capture')[0]->context['direction']);
+        $this->assertCount(0, $this->records('wlcm_default'));
+    }
+
+    public function test_log_driver_trims_a_padded_channel(): void
+    {
+        config(['wlcm.storage.logs' => 'log', 'wlcm.storage.logs_channel' => '  wlcm_capture  ']);
+        Exceptions::fake();
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertCount(1, $this->records('wlcm_capture'));
+        Exceptions::assertNothingReported();
+    }
+
+    public function test_blank_channel_falls_back_to_the_default_channel(): void
+    {
+        config(['wlcm.storage.logs' => 'log', 'wlcm.storage.logs_channel' => '   ']);
+        Exceptions::fake();
+        $this->fakeCheckout();
+
+        $this->checkout();
+
+        $this->assertCount(1, $this->records('wlcm_default'));
+        $this->assertCount(0, $this->records('wlcm_capture'));
+        Exceptions::assertNothingReported();
+    }
+
+    public function test_log_driver_never_logs_a_bare_pan(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $logged = $this->captureLogContexts(fn () => $this->cardCheckout());
+
+        $encoded = (string) json_encode($logged[0]['context']);
+        $this->assertStringNotContainsString('9860991234569999', $encoded);
+        $this->assertStringContainsString('986099******9999', $encoded);
+    }
+
+    public function test_log_driver_records_webhook_deliveries(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $logged = $this->captureLogContexts(function (): void {
+            $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+        });
+
+        $this->assertCount(1, $logged);
+        $this->assertSame('webhook', $logged[0]['context']['direction']);
+        $this->assertSame('7788', $logged[0]['context']['payment_id']);
+    }
+
+    public function test_drivers_agree_on_the_out_entry_shape(): void
+    {
+        $this->freezeTime();
+        $args = [
+            'main', 'partner', 'POST', 'https://api.wlcm.test/api/v1/checkout',
+            ['amount' => 1200], ['order_id' => 1254], 201, 12,
+            ['external_id' => 'ORD-9', 'order_id' => '1254', 'payment_id' => '7788', 'transaction_id' => 'TX-1'],
+            'ok',
+        ];
+
+        config(['wlcm.storage.logs' => 'database']);
+        (new DatabaseLogStore)->out(...$args);
+
+        $path = $this->useFileDriver();
+        (new FileLogStore)->out(...$args);
+
+        config(['wlcm.storage.logs' => 'log']);
+        $logged = $this->captureLogContexts(function () use ($args): void {
+            (new LogChannelLogStore)->out(...$args);
+        });
+
+        $row = array_filter(WlcmLog::sole()->getAttributes(), static fn (mixed $v): bool => $v !== null);
+        unset($row['id']);
+
+        $this->assertSame($this->sortedKeys($row), $this->sortedKeys($this->lines($path)[0]));
+        $this->assertSame($this->lines($path)[0], $logged[0]['context']);
+    }
+
+    public function test_drivers_agree_on_the_webhook_entry_shape(): void
+    {
+        $this->freezeTime();
+        $payload = ['external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788'];
+
+        config(['wlcm.storage.logs' => 'database']);
+        (new DatabaseLogStore)->webhook('main', $payload, 'ok');
+
+        $path = $this->useFileDriver();
+        (new FileLogStore)->webhook('main', $payload, 'ok');
+
+        config(['wlcm.storage.logs' => 'log']);
+        $logged = $this->captureLogContexts(function () use ($payload): void {
+            (new LogChannelLogStore)->webhook('main', $payload, 'ok');
+        });
+
+        $row = array_filter(WlcmLog::sole()->getAttributes(), static fn (mixed $v): bool => $v !== null);
+        unset($row['id']);
+
+        $this->assertSame($this->sortedKeys($row), $this->sortedKeys($this->lines($path)[0]));
+        $this->assertSame($this->lines($path)[0], $logged[0]['context']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     * @return list<string>
+     */
+    private function sortedKeys(array $entry): array
+    {
+        $keys = array_keys($entry);
+        sort($keys);
+
+        return $keys;
+    }
+
+    public function test_database_driver_stays_silent_while_another_driver_is_selected(): void
+    {
+        $this->useFileDriver();
+        $this->fakeCheckout();
+
+        (new DatabaseLogStore)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+
+        $this->assertSame(0, WlcmLog::query()->count());
+    }
+
+    public function test_runtime_toggle_off_and_on_still_works(): void
+    {
+        $path = $this->useFileDriver();
+        $this->fakeCheckout();
+        $this->app->make(LogStore::class);
+
+        config(['wlcm.storage.logs' => false]);
+        $this->checkout();
+        $this->assertFileDoesNotExist($path);
+
+        config(['wlcm.storage.logs' => 'file']);
+        $this->checkout();
+        $this->assertCount(1, $this->lines($path));
+    }
+
+    public function test_driver_switch_after_resolution_needs_a_rebind(): void
+    {
+        $path = $this->useFileDriver();
+        $this->fakeCheckout();
+        $this->app->make(LogStore::class);
+
+        config(['wlcm.storage.logs' => 'log']);
+        $logged = $this->captureLogContexts(fn () => $this->checkout());
+
+        $this->assertFileDoesNotExist($path);
+        $this->assertSame([], $logged);
+    }
+}

@@ -38,7 +38,13 @@ return [
     ],
 
     'storage' => [
-        'logs' => false,
+        // false = off; 'database' (wlcm_logs table), 'file' (JSON lines), 'log' (Laravel
+        // log channel). true = 'database'. Any other value throws on first resolution.
+        'logs' => env('WLCM_LOGS', false),
+        // 'log' driver only; null = the app's default channel.
+        'logs_channel' => env('WLCM_LOGS_CHANNEL'),
+        // 'file' driver only; null = storage_path('logs/wlcm.jsonl').
+        'logs_path' => env('WLCM_LOGS_PATH'),
         'transactions' => false,
         // null or garbage disables pruning; days are clamped to >= 1.
         'prune_days' => 90,
