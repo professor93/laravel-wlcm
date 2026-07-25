@@ -187,14 +187,18 @@ Both default `false` — nothing is recorded unless opted in. PAN, OTP, password
 
 | `logs` | Where entries go | Env |
 | --- | --- | --- |
-| `false` | nowhere | `WLCM_LOGS=false` |
-| `'database'` (or `true`) | `wlcm_logs` table — needs the migration | `WLCM_LOGS=database` |
+| `false` (or `'0'`) | nowhere | `WLCM_LOGS=false`, `WLCM_LOGS=0` |
+| `'database'` (or `true`/`'1'`) | `wlcm_logs` table — needs the migration | `WLCM_LOGS=database`, `WLCM_LOGS=1` |
 | `'file'` | one JSON object per line at `logs_path` | `WLCM_LOGS=file`, `WLCM_LOGS_PATH` |
 | `'log'` | one `info` record per entry on `logs_channel` | `WLCM_LOGS=log`, `WLCM_LOGS_CHANNEL` |
 
 All three drivers record the same fields per entry — the `wlcm_logs` columns; outgoing entries carry the request/response ones, webhook entries only the delivery ones. The file driver appends with `LOCK_EX`, creates the directory if missing, and timestamps in ISO-8601.
 
-Anything else throws `MissingConfigurationException` the first time the store resolves — a typo'd driver name fails loudly instead of silently dropping the audit trail. `null` and `''` count as off, so an unset env var is not a typo.
+A relative `WLCM_LOGS_PATH` resolves against the process working directory — different for web, queue workers and CLI — so give it an absolute path.
+
+A typo'd `logs_channel` does not throw: Laravel falls back to its emergency logger and the entries land in `storage/logs/laravel.log` instead of the channel you named. Check the channel name first when entries go missing.
+
+Anything else throws `MissingConfigurationException` the first time the store resolves — a typo'd driver name fails loudly instead of silently dropping the audit trail. `null`, `''` and `'0'` count as off, so neither an unset env var nor `WLCM_LOGS=0` is a typo.
 
 The driver is picked once, when the store is first resolved — it is a singleton, so swapping between drivers at runtime needs a rebind. Turning logging off and back on at runtime keeps working: every driver rechecks the config on each write.
 
@@ -208,6 +212,10 @@ Schedule::command('model:prune', ['--model' => [
 ```
 
 `prune_days` null or non-numeric disables pruning outright — empty query, no rows touched; numeric values clamp to a floor of 1 day. Transactions prune only rows with `processed_at` set, so an in-flight delivery is never pruned out from under the dedupe check. Keep `prune_days` above WLCM's redelivery window — a pruned row is a forgotten delivery, and a replay after it re-runs your handlers.
+
+`prune_days` covers those two tables only. The file driver's JSONL grows forever — rotate it yourself; the `'log'` driver inherits whatever retention its channel has.
+
+A failing audit sink is swallowed and `report()`ed so it never breaks a payment call — but if the app's default log channel is broken too, `report()` itself can throw and surface to the caller. Keep that channel healthy.
 
 Log writes go through the `Uzbek\Wlcm\Storage\LogStore` interface; rebind it to send audit entries somewhere none of the shipped drivers reach.
 
