@@ -13,7 +13,7 @@ final readonly class Checkout
     public function __construct(private PartnerClient $client) {}
 
     public function create(
-        int $amount,
+        int $amountTiyin,
         ?string $returnUrl = null,
         ?string $externalId = null,
         PaymentProvider|string|null $provider = null,
@@ -21,7 +21,7 @@ final readonly class Checkout
         ?string $expireDate = null,
     ): CheckoutResponse {
         $payload = array_filter([
-            'amount' => $amount,
+            'amount' => $amountTiyin,
             'external_id' => $externalId,
             'payment_provider' => $provider instanceof PaymentProvider ? $provider->value : $provider,
             'card_number' => $cardNumber,

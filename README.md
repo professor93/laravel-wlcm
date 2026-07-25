@@ -33,7 +33,7 @@ use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Enums\PaymentProvider;
 
 $r = Wlcm::partner()->checkout()->create(
-    amount: 120000,
+    amountTiyin: 120000,
     returnUrl: 'https://merchant.example.com/payment/return',
     externalId: 'ORD-100045',
     provider: PaymentProvider::Payme,
@@ -182,7 +182,7 @@ $fake = Wlcm::fake([
     '*/integrations/checkout' => ['order_id' => 42, 'state' => 0, 'checkout_url' => 'https://custom.test'],
 ]);
 
-Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-7');
+Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-7');
 
 $fake->assertCheckoutCreated(fn (array $payload): bool => $payload['external_id'] === 'ORD-7');
 $fake->assertSent(fn ($request) => true);

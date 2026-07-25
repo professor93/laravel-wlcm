@@ -29,6 +29,7 @@ final readonly class Payments
 
     /**
      * Reason is an integer code; the server 422s on strings.
+     * Raw passthrough: the cancel ack body is undocumented, nothing stable to type.
      *
      * @return array<string, mixed>
      */
@@ -45,6 +46,7 @@ final readonly class Payments
     /**
      * Paylov WO confirm. UNVERIFIED: the camelCase body is sandbox-console-derived,
      * never confirmed against a real payment.
+     * Raw passthrough: the response was never observed, so there is nothing to type.
      *
      * @return array<string, mixed>
      */

@@ -416,7 +416,7 @@ final class ErrorMappingTest extends TestCase
 
         try {
             Wlcm::partner()->checkout()->create(
-                amount: 120000, externalId: 'ORD-9', provider: 'card',
+                amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
                 cardNumber: '8600123412341234', expireDate: '3003',
             );
             $this->fail('expected ValidationException');

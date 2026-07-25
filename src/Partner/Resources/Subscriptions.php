@@ -81,7 +81,11 @@ final readonly class Subscriptions
         return SubscriptionCardAttached::fromArray($result);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Raw passthrough: docs cover the request only, the confirm ack body is undocumented.
+     *
+     * @return array<string, mixed>
+     */
     public function confirmCard(int $subscriptionId, string $otp, ?int $cardId = null): array
     {
         $payload = array_filter([
@@ -92,7 +96,12 @@ final readonly class Subscriptions
         return $this->client->postUnsigned("/subscriptions/{$subscriptionId}/cards/confirm", $payload);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Raw passthrough: docs cover the request only, the activate ack body is undocumented;
+     * read state back with get().
+     *
+     * @return array<string, mixed>
+     */
     public function activate(int $subscriptionId): array
     {
         return $this->client->postUnsigned("/subscriptions/{$subscriptionId}/activate");

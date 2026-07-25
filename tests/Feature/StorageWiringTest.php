@@ -66,7 +66,7 @@ final class StorageWiringTest extends TestCase
         Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 1], 201)]);
 
         Wlcm::partner()->checkout()->create(
-            amount: 120000, externalId: 'ORD-9', provider: 'card',
+            amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
             cardNumber: '9860991234569999', expireDate: '3003',
         );
 
@@ -100,7 +100,7 @@ final class StorageWiringTest extends TestCase
             'checkout_url' => 'https://c.test/x', 'message' => null,
         ], 201)]);
 
-        Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
 
         $tx = WlcmTransaction::sole();
         $this->assertSame('ORD-9', $tx->external_id);
@@ -131,7 +131,7 @@ final class StorageWiringTest extends TestCase
             'checkout_url' => 'https://c.test/x', 'message' => null,
         ], 201)]);
 
-        Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-1');
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-1');
 
         $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
 
@@ -148,7 +148,7 @@ final class StorageWiringTest extends TestCase
         Exceptions::fake();
         Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
 
         $this->assertSame('https://c.test/x', $r->checkoutUrl);
         Exceptions::assertReported(QueryException::class);
@@ -160,7 +160,7 @@ final class StorageWiringTest extends TestCase
         Exceptions::fake();
         Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
 
         $this->assertSame('https://c.test/x', $r->checkoutUrl);
         Exceptions::assertReported(QueryException::class);
@@ -268,7 +268,7 @@ final class StorageWiringTest extends TestCase
         )]);
 
         try {
-            Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+            Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
             $this->fail('expected ServerException');
         } catch (ServerException) {
         }
@@ -315,7 +315,7 @@ final class StorageWiringTest extends TestCase
 
         try {
             Wlcm::partner()->checkout()->create(
-                amount: 120000, externalId: 'ORD-9', provider: 'card',
+                amountTiyin: 120000, externalId: 'ORD-9', provider: 'card',
                 cardNumber: '8600123412341234', expireDate: '3003',
             );
             $this->fail('expected ValidationException');
@@ -346,7 +346,7 @@ final class StorageWiringTest extends TestCase
         $this->app->instance(LogStore::class, $spy);
 
         Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
-        Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9');
 
         $this->assertSame(['ok'], $spy->calls);
         $this->assertSame(0, WlcmLog::query()->count());

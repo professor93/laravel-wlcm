@@ -24,7 +24,7 @@ final class CheckoutTest extends TestCase
         ], 200)]);
 
         $r = Wlcm::partner()->checkout()->create(
-            amount: 120000,
+            amountTiyin: 120000,
             returnUrl: 'https://merchant.example.com/payment/return',
             externalId: 'probe-mock-163350',
             provider: PaymentProvider::Payme,
@@ -55,7 +55,7 @@ final class CheckoutTest extends TestCase
         ]);
 
         $r = Wlcm::partner()->checkout()->create(
-            amount: 120000,
+            amountTiyin: 120000,
             externalId: 't-1',
             provider: 'card',
             cardNumber: '9860990000000000',
@@ -77,7 +77,7 @@ final class CheckoutTest extends TestCase
             'checkout_url' => 'https://c.test/x', 'message' => null,
         ], 200)]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 100, returnUrl: 'https://x.test');
 
         $this->assertNull($r->state);
         $this->assertNull($r->stateEnum());
@@ -90,7 +90,7 @@ final class CheckoutTest extends TestCase
             'checkout_url' => 'https://c.test/x', 'message' => null,
         ], 200)]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 100, returnUrl: 'https://x.test');
 
         $this->assertNull($r->state);
         $this->assertNull($r->stateEnum());
@@ -103,7 +103,7 @@ final class CheckoutTest extends TestCase
             'checkout_url' => null, 'message' => null,
         ], 200)]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 100, returnUrl: 'https://x.test');
         $this->assertSame(99, $r->state);
         $this->assertNull($r->stateEnum());
     }

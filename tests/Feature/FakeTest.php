@@ -13,7 +13,7 @@ final class FakeTest extends TestCase
     {
         Wlcm::fake();
 
-        $r = Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test');
 
         $this->assertSame('https://checkout.fake/wlcm', $r->checkoutUrl);
     }
@@ -22,7 +22,7 @@ final class FakeTest extends TestCase
     {
         $fake = Wlcm::fake();
 
-        Wlcm::partner()->checkout()->create(amount: 120000, returnUrl: 'https://x.test', externalId: 'ORD-7');
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-7');
 
         $fake->assertCheckoutCreated(fn (array $payload): bool => $payload['external_id'] === 'ORD-7'
             && $payload['amount'] === 120000);
@@ -34,7 +34,7 @@ final class FakeTest extends TestCase
             '*/integrations/checkout' => ['order_id' => 42, 'state' => 0, 'checkout_url' => 'https://custom.test'],
         ]);
 
-        $r = Wlcm::partner()->checkout()->create(amount: 100, returnUrl: 'https://x.test');
+        $r = Wlcm::partner()->checkout()->create(amountTiyin: 100, returnUrl: 'https://x.test');
 
         $this->assertSame(42, $r->orderId);
         $this->assertSame('https://custom.test', $r->checkoutUrl);

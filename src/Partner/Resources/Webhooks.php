@@ -44,7 +44,11 @@ final readonly class Webhooks
         return WebhookInfo::fromArray($result);
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Raw passthrough: DELETE acks with no documented body, unlike PATCH which returns the object.
+     *
+     * @return array<string, mixed>
+     */
     public function delete(int $webhookId): array
     {
         return $this->client->delete("/partners/me/webhooks/{$webhookId}");
