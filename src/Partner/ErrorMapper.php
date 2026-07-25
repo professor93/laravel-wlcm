@@ -76,12 +76,17 @@ final class ErrorMapper
 
         $args = [$message, $connectionName, $method, $url, $status, $body];
 
+        // 4xx is a determinate business answer. 5xx/3xx leave the outcome unknown and 401/403 were
+        // never business-evaluated, so a body code there must not be relabelled as a decline;
+        // it still rides along via errorCode.
+        $determinate = $status >= 400 && $status < 500;
+
         throw match (true) {
-            $errorCode === WlcmErrorCode::InvalidOtp->value,
-            $errorCode === WlcmErrorCode::OtpExpired->value => new InvalidOtpException(...$args, errorCode: $errorCode),
-            $errorCode === WlcmErrorCode::InsufficientFunds->value => new InsufficientFundsException(...$args, errorCode: $errorCode),
             $status === 401 => new AuthenticationException(...$args, errorCode: $errorCode),
             $status === 403 => new AuthorizationException(...$args, errorCode: $errorCode),
+            $determinate && $errors === [] && $errorCode === WlcmErrorCode::InvalidOtp->value,
+            $determinate && $errors === [] && $errorCode === WlcmErrorCode::OtpExpired->value => new InvalidOtpException(...$args, errorCode: $errorCode),
+            $determinate && $errors === [] && $errorCode === WlcmErrorCode::InsufficientFunds->value => new InsufficientFundsException(...$args, errorCode: $errorCode),
             $status === 404 => new NotFoundException(...$args, errorCode: $errorCode),
             $status === 409 => new ConflictException(...$args, errorCode: $errorCode),
             $status === 422 || $status === 400 => new ValidationException(

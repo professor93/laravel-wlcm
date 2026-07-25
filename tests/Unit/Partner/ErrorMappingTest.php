@@ -259,6 +259,66 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    public function test_5xx_business_code_stays_server_exception(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['code' => 'insufficient_funds', 'message' => 'Insufficient funds'], 500,
+        )]);
+
+        try {
+            Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+            $this->fail('expected ServerException');
+        } catch (ServerException $e) {
+            $this->assertSame(500, $e->responseStatus);
+            $this->assertSame('insufficient_funds', $e->errorCode());
+            $this->assertSame(WlcmErrorCode::InsufficientFunds, $e->errorCodeEnum());
+        }
+    }
+
+    public function test_401_is_authentication_even_with_business_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['detail' => 'Invalid API key', 'code' => 'invalid_otp'], 401,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '000000');
+            $this->fail('expected AuthenticationException');
+        } catch (AuthenticationException $e) {
+            $this->assertSame(401, $e->responseStatus);
+            $this->assertSame('invalid_otp', $e->errorCode());
+        }
+    }
+
+    public function test_404_with_business_code_stays_typed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'invalid_otp'], 404)]);
+
+        try {
+            Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '000000');
+            $this->fail('expected InvalidOtpException');
+        } catch (InvalidOtpException $e) {
+            $this->assertSame(404, $e->responseStatus);
+            $this->assertSame(WlcmErrorCode::InvalidOtp, $e->errorCodeEnum());
+        }
+    }
+
+    public function test_validation_errors_map_beats_code_relabel(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'errors' => ['amount' => ['too small']],
+            'code' => 'insufficient_funds',
+        ], 400)]);
+
+        try {
+            Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['amount' => ['too small']], $e->errors());
+            $this->assertSame('insufficient_funds', $e->errorCode());
+        }
+    }
+
     public function test_404_snake_case_detail_carries_error_code(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'not_found'], 404)]);
