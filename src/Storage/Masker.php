@@ -87,21 +87,38 @@ final class Masker
 
     public static function scrubPans(string $text): string
     {
+        $scrubbed = self::scrubRuns($text, $text);
+
+        // "%20" before a pan fuses into one luhn-failing run; blanking escape hex frees the pan, same width so offsets hold.
+        // Both still hide a pan: escape inside it (4111%201111...) and "+" separators; view blanks escapes, never decodes.
+        $view = preg_replace('/%[0-9A-Fa-f]{2}/', '%~~', $scrubbed) ?? $scrubbed;
+
+        return $view === $scrubbed ? $scrubbed : self::scrubRuns($scrubbed, $view);
+    }
+
+    /** Runs are found in $view but masked in $text: equal width, differing only outside any run. */
+    private static function scrubRuns(string $text, string $view): string
+    {
         // Luhn-failing run left whole, never hunted for passing substring: false-positive control beats exhaustiveness.
-        $scrubbed = preg_replace_callback(
-            '/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/',
-            static function (array $match): string {
-                $run = $match[0];
-                $digits = preg_replace('/\D/', '', $run) ?? $run;
+        if (! preg_match_all('/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/', $view, $matches, PREG_OFFSET_CAPTURE)) {
+            return $text;
+        }
 
-                return self::luhn($digits)
-                    ? substr($digits, 0, 6).'***'.substr($digits, -4)
-                    : $run;
-            },
-            $text,
-        );
+        $out = '';
+        $cursor = 0;
 
-        return $scrubbed ?? $text;
+        foreach ($matches[0] as [$run, $offset]) {
+            $digits = preg_replace('/\D/', '', $run) ?? $run;
+
+            if (! self::luhn($digits)) {
+                continue;
+            }
+
+            $out .= substr($text, $cursor, $offset - $cursor).substr($digits, 0, 6).'***'.substr($digits, -4);
+            $cursor = $offset + strlen($run);
+        }
+
+        return $out.substr($text, $cursor);
     }
 
     private static function luhn(string $digits): bool

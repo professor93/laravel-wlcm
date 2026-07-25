@@ -130,6 +130,42 @@ final class MaskerTest extends TestCase
         $this->assertSame('id 8600123456789012000', Masker::scrubPans('id 8600123456789012000'));
     }
 
+    public function test_percent_escaped_prose_does_not_hide_a_pan(): void
+    {
+        $this->assertSame(
+            'ref=order%20for%20card%20411111***1111',
+            Masker::scrubPans('ref=order%20for%20card%204111111111111111'),
+        );
+        $this->assertSame('order%21411111***1111', Masker::scrubPans('order%214111111111111111'));
+        $this->assertSame('order%2C411111***1111', Masker::scrubPans('order%2C4111111111111111'));
+    }
+
+    public function test_percent_escape_before_a_separated_pan_scrubbed(): void
+    {
+        $this->assertSame('a%20411111***1111', Masker::scrubPans('a%204111 1111 1111 1111'));
+    }
+
+    public function test_literal_percent_before_a_pan_still_scrubbed(): void
+    {
+        $this->assertSame('off 50%411111***1111', Masker::scrubPans('off 50%4111111111111111'));
+    }
+
+    public function test_long_run_after_an_escape_is_left_whole(): void
+    {
+        $this->assertSame('x%2012345678901234567890 y', Masker::scrubPans('x%2012345678901234567890 y'));
+    }
+
+    public function test_luhn_failing_run_after_an_escape_is_left_whole(): void
+    {
+        $this->assertSame('id%208600123456789012000', Masker::scrubPans('id%208600123456789012000'));
+    }
+
+    public function test_percent_escaped_pan_scrub_is_idempotent(): void
+    {
+        $once = Masker::scrubPans('ref=order%20for%20card%204111111111111111');
+        $this->assertSame($once, Masker::scrubPans($once));
+    }
+
     public function test_multiple_pans_both_scrubbed(): void
     {
         $this->assertSame(

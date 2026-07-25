@@ -800,6 +800,22 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('card 411111***1111', $meta['cid']);
     }
 
+    public function test_percent_encoded_checkout_url_cannot_hide_a_pan_in_meta(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=order%20for%20card%204111111111111111',
+            'cid' => 'cid-7788',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=order%20for%20card%20411111***1111', $meta['checkout_url']);
+        $this->assertSame('cid-7788', $meta['cid']);
+    }
+
     public function test_ordinary_checkout_meta_survives_the_scrub(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
