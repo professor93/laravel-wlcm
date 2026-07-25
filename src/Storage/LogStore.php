@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Storage;
 
-/** Masking stays in front of every implementation: no PAN, OTP or secret reaches a store. */
+/**
+ * Producers mask before calling: implementations receive pre-masked data and persist it verbatim.
+ * Never feed raw request/response bodies here.
+ */
 interface LogStore
 {
     /**

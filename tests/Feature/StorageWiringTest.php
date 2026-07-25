@@ -324,4 +324,30 @@ final class StorageWiringTest extends TestCase
         $this->assertSame(['ok'], $spy->calls);
         $this->assertSame(0, WlcmLog::query()->count());
     }
+
+    public function test_swapped_log_store_receives_masked_bodies(): void
+    {
+        $spy = new class implements LogStore
+        {
+            /** @var array<string, mixed>|null */
+            public ?array $requestBody = null;
+
+            public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void
+            {
+                $this->requestBody = $requestBody;
+            }
+
+            public function webhook(string $connection, array $payload, string $result): void {}
+        };
+        $this->app->instance(LogStore::class, $spy);
+
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'card_id' => 7, 'otp_sent_phone' => '**********67', 'reused' => false,
+        ], 200)]);
+
+        Wlcm::partner()->subscriptions()->attachCard(5, '9860991234569999', '3003', '998901234567');
+
+        $this->assertSame('986099******9999', $spy->requestBody['card_number']);
+        $this->assertSame('***', $spy->requestBody['expire_date']);
+    }
 }

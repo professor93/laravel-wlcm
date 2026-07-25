@@ -9,6 +9,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Uzbek\Wlcm\Exceptions\ConnectionException;
 use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\Masker;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 
 final class PartnerClient
@@ -129,7 +130,7 @@ final class PartnerClient
                 ? $request->send($method, $url)
                 : $request->withBody($body, 'application/json')->send($method, $url);
         } catch (HttpConnectionException $e) {
-            $this->logStore->out($this->connectionName, 'partner', $method, $url, $this->decode($body), null, null, $this->elapsedMs($started), result: 'error');
+            $this->logStore->out($this->connectionName, 'partner', $method, $url, $this->maskedBody($body), null, null, $this->elapsedMs($started), result: 'error');
 
             throw new ConnectionException($e->getMessage(), $this->connectionName, $method, $url, previous: $e);
         }
@@ -164,8 +165,8 @@ final class PartnerClient
             'partner',
             $method,
             $url,
-            $this->decode($body),
-            $json,
+            $this->maskedBody($body),
+            is_array($json) ? Masker::mask($json) : $json,
             $response->status(),
             $durationMs,
             ids: $ids,
@@ -176,7 +177,7 @@ final class PartnerClient
     }
 
     /** @return array<string, mixed>|null */
-    private function decode(?string $body): ?array
+    private function maskedBody(?string $body): ?array
     {
         if ($body === null) {
             return null;
@@ -188,8 +189,10 @@ final class PartnerClient
             return null;
         }
 
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
+        /** @var array<string, mixed> $masked */
+        $masked = Masker::mask($decoded);
+
+        return $masked;
     }
 
     private function elapsedMs(int|float $startedNs): int

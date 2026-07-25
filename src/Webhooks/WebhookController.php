@@ -17,6 +17,7 @@ use Uzbek\Wlcm\Events\SubscriptionChargeFailed;
 use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\Masker;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 
@@ -34,8 +35,9 @@ final readonly class WebhookController
         /** @var WebhookPayload|SubscriptionWebhookPayload $payload */
         $payload = $request->attributes->get('wlcm_payload');
 
-        $requestData = (array) $request->all();
         /** @var array<string, mixed> $requestData */
+        $requestData = Masker::mask((array) $request->all());
+
         if ($payload instanceof SubscriptionWebhookPayload) {
             return $this->handleSubscription($payload, $requestData);
         }
