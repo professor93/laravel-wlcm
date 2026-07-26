@@ -5,17 +5,15 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Route;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookController;
+use Uzbek\Wlcm\Webhooks\WebhookRoute;
 
-$path = config('wlcm.webhook.path');
-
-// Array config kills BootProviders on string cast; slash-or-whitespace-only registers root catch-all.
-$path = is_string($path) ? trim($path, " \t\n\r\0\x0B/") : '';
-$path = $path !== '' ? $path : 'wlcm/webhook';
-
+// URI and normalisation both come from WebhookRoute, which is the SAME source the
+// provider's conflict watch reads. Two copies of the trim-and-fallback rule would drift,
+// and the watch has to derive the URI from config to stay sighted under route:cache.
 $route = Route::post(
-    $path.'/{connection?}',
+    WebhookRoute::uri(config('wlcm.webhook.path')),
     WebhookController::class,
-)->middleware(VerifyWebhookSignature::class)->name('wlcm.webhook');
+)->middleware(VerifyWebhookSignature::class)->name(WebhookRoute::NAME);
 
 $connections = array_keys((array) config('wlcm.connections', []));
 

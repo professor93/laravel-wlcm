@@ -6,7 +6,6 @@ namespace Uzbek\Wlcm;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
@@ -19,12 +18,10 @@ use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
 use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Support\ConfigToggle;
-use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
+use Uzbek\Wlcm\Webhooks\WebhookRoute;
 
 final class WlcmServiceProvider extends ServiceProvider
 {
-    private const string WEBHOOK_ROUTE_NAME = 'wlcm.webhook';
-
     public function register(): void
     {
         // Recursive, not array_merge: a published config replaces whole sub-arrays
@@ -79,70 +76,41 @@ final class WlcmServiceProvider extends ServiceProvider
     }
 
     /**
-     * A host route at the same method and URI evicts ours from the route collection
-     * and takes VerifyWebhookSignature with it, leaving whatever replaced it reading
-     * an unverified body. Nothing announces that; route:list is the only symptom.
+     * A host route at the same method and URI evicts ours from the route collection and
+     * takes VerifyWebhookSignature with it, leaving whatever replaced it reading an
+     * unverified body. Nothing announces that; route:list is the only symptom.
      *
-     * Deferred to booted() because the app's own routes load from a booted callback
-     * queued by RouteServiceProvider::register(), and every register() precedes every
-     * boot(). Read the collection, never the name lookup: eviction mutates allRoutes,
-     * but refreshNameLookups() is queued in a nested booted() callback that runs after
-     * this one, so the evicted route still answers to its name here and a name-based
-     * check could not fail. What matters is the middleware on whoever holds the URI,
-     * not whose route it is — a host that reattaches VerifyWebhookSignature is safe.
+     * Deferred to booted() because the app's own routes load from a booted callback queued
+     * by RouteServiceProvider::register(), and every register() precedes every boot(). Read
+     * the collection, never the name lookup: eviction mutates allRoutes, but
+     * refreshNameLookups() is queued in a nested booted() callback that runs after this
+     * one, so the evicted route still answers to its name here and a name-based check
+     * could not fail.
+     *
+     * The URI comes from CONFIG, not from our own registered route. Deriving it from our
+     * route made the check blind under `route:cache`: a table baked while a host route
+     * already shadowed ours holds no route of ours to read the URI from, so nothing was
+     * watched — the guard was silent in precisely the state it exists to catch. The
+     * normalisation is not duplicated to get that; WebhookRoute owns the only copy and the
+     * route file uses it too.
      */
     private function watchForRouteConflict(): void
     {
         $router = $this->app->make(Router::class);
-
-        // Null means the routes were cached, so the load above was a no-op and there
-        // is no URI to watch.
-        $uri = $this->packageWebhookRoute($router)?->uri();
-
-        if ($uri === null) {
-            return;
-        }
+        $uri = WebhookRoute::uri($this->app->make(Repository::class)->get('wlcm.webhook.path'));
 
         $this->app->booted(function () use ($router, $uri): void {
-            $serving = $this->routeServing($router, $uri);
-
-            if ($serving === null || in_array(VerifyWebhookSignature::class, (array) $serving->middleware(), true)) {
+            if (WebhookRoute::shadow($router, $uri) === null) {
                 return;
             }
 
-            // Guarded: report() runs the host's handler, and a diagnostic may never
-            // be the thing that takes a request down.
+            // Guarded: report() runs the host's handler, and a diagnostic may never be
+            // the thing that takes a request down.
             try {
                 report(WebhookRouteConflictException::forUri($uri));
             } catch (Throwable) {
                 //
             }
         });
-    }
-
-    private function packageWebhookRoute(Router $router): ?Route
-    {
-        foreach ($router->getRoutes()->getRoutes() as $route) {
-            if ($route->getName() === self::WEBHOOK_ROUTE_NAME
-                && in_array(VerifyWebhookSignature::class, (array) $route->middleware(), true)) {
-                return $route;
-            }
-        }
-
-        return null;
-    }
-
-    /** Only a domainless POST can hold our slot: the collection keys on methods, domain and uri. */
-    private function routeServing(Router $router, string $uri): ?Route
-    {
-        foreach ($router->getRoutes()->getRoutes() as $route) {
-            if ($route->getDomain() === null
-                && $route->uri() === $uri
-                && in_array('POST', $route->methods(), true)) {
-                return $route;
-            }
-        }
-
-        return null;
     }
 }
