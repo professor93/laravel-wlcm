@@ -37,8 +37,11 @@ final readonly class WebhookController
         /** @var WebhookPayload|SubscriptionWebhookPayload $payload */
         $payload = $request->attributes->get('wlcm_payload');
 
+        // Same bytes the signature was verified over. Re-reading the request here would
+        // reintroduce the split: under a non-JSON encoding $request->all() is the query
+        // string, so the blob and ids would describe a document nobody authenticated.
         /** @var array<string, mixed> $raw */
-        $raw = (array) $request->all();
+        $raw = (array) $request->attributes->get('wlcm_data', []);
         /** @var array<string, mixed> $requestData */
         $requestData = Masker::scrubProse(Masker::mask($raw));
         // Blob keeps the whole-body scrub; correlation columns come off the raw delivery,

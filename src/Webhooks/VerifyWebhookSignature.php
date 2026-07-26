@@ -27,34 +27,37 @@ final readonly class VerifyWebhookSignature
     /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
-        // Subscription events carry `event` field; payment webhooks never do.
-        $event = $request->input('event');
-        $isSubscription = $event !== null;
+        // ONE document. The signature base, every guard, the freshness check, the payload
+        // dispatched and the blob logged all derive from these same bytes. Verifying one
+        // document and acting on another is an authentication bypass, and splitting them
+        // produced exactly that: under a non-JSON content type `$request->all()` is the
+        // QUERY STRING while `getContent()` is still the json body, so a captured
+        // signature authenticated the body while the query decided what got dispatched.
+        //
+        // Keyed on the request's ENCODING, not on whether the body happens to parse — a
+        // json body sent as text/plain parses perfectly, which is how the split was
+        // reachable. Anything not declared json falls back to the framework-parsed input,
+        // which keeps the pre-existing behaviour rather than inventing a refusal.
+        $decoded = $request->isJson() ? json_decode($request->getContent(), true) : null;
+        /** @var array<string, mixed> $data */
+        $data = is_array($decoded) ? $decoded : (array) $request->all();
 
-        // Neither signature base carries a domain tag, and both are bare colon joins, so
-        // a payment base {order_id}:{payment_id}:{state}:{timestamp} is byte-identical to
-        // a subscription base {external_order_id}:{event}:{timestamp} when the reference
-        // holds the colon — a captured payment delivery replays as a subscription with
-        // its signature UNCHANGED. Every real event is a `subscription.` kind, so
-        // refusing anything else closes that direction without a wire-format change and
-        // without constraining merchant free text. The reverse direction needs a domain
-        // tag in both bases, which is WLCM's to change, not ours.
+        // Subscription events carry `event` field; payment webhooks never do. Empty counts
+        // as absent, matching what a stock app's ConvertEmptyStringsToNull already did.
+        $event = $data['event'] ?? null;
+        $isSubscription = $event !== null && $event !== '';
+
         // A payment base {order_id}:{payment_id}:{state}:{timestamp} and a subscription
         // base {external_order_id}:{event}:{timestamp} are both bare colon joins, so a
         // captured payment delivery can replay as a subscription with its signature
-        // UNCHANGED. The forger splits `O:P:S` in one of two places, which is the whole
-        // attack surface: event = "S" (numeric), or event = "P:S" (contains a colon).
-        // Refusing those two shapes closes both deterministically.
+        // UNCHANGED. For a collision `X:E` must equal `O:P:S`, so X is a prefix of O:P:S
+        // ending on a colon boundary: either X carries a colon, or X is exactly O and E is
+        // `P:S` and carries one. Refusing a colon in EITHER field closes every split,
+        // whatever the timestamp looks like — a numeric-only rule missed `E = "P:S"`, and
+        // a rule keyed on `subscription.` naming would refuse a legitimate event kind we
+        // have not seen yet. The cost is that a merchant reference may not contain a colon.
         //
-        // Deliberately NOT a `subscription.` prefix check. Every event we have observed is
-        // a `subscription.` kind, but observed is not exhaustive — WLCM has already been
-        // seen emitting states its own docs omit — and a guard keyed on a naming
-        // convention would 422 a legitimate delivery the first time that assumption
-        // breaks. A lost payment event outranks the tidier rule.
-        //
-        // Scalar-gated: a non-scalar event is unusable for a different reason and keeps
-        // its "Missing field" answer from the loop below. Cast, because the numeric shape
-        // arrives as a bare integer as readily as a string.
+        // Scalar-gated: a non-scalar keeps its "Missing field" answer from the loop below.
         if ($isSubscription && is_scalar($event)) {
             $kind = (string) $event;
 
@@ -64,7 +67,7 @@ final readonly class VerifyWebhookSignature
         }
 
         foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
-            $value = $request->input($field);
+            $value = $data[$field] ?? null;
 
             // Empty counts as missing. An empty payment_id coerces to '' and every such
             // row collides on unique(connection, ''), where a claim would answer the
@@ -80,13 +83,13 @@ final readonly class VerifyWebhookSignature
         // money and firing the events on the same input mysql refuses. Refused here, on
         // both engines, before any claim can exist. Refusing beats clamping: a silently
         // corrected money value is worse than a delivery someone can be asked to resend.
-        $amount = $request->input('amount');
+        $amount = $data['amount'] ?? null;
 
         if (! $isSubscription && is_scalar($amount) && str_starts_with(ltrim((string) $amount), '-')) {
             abort(422, 'Invalid field: amount');
         }
 
-        $signature = $request->input('signature');
+        $signature = $data['signature'] ?? null;
 
         // Some deliveries carry signature only in X-Webhook-Signature header.
         if (! is_string($signature) || $signature === '') {
@@ -101,7 +104,7 @@ final readonly class VerifyWebhookSignature
         /** @var WlcmJsonScalar $default */
         $connection = $request->route('connection') ?? (string) $default;
 
-        $requestData = (array) $request->all();
+        $requestData = $data;
         $requestData['signature'] = $signature;
 
         if ($isSubscription) {
@@ -119,24 +122,9 @@ final readonly class VerifyWebhookSignature
             throw MissingConfigurationException::forKey("wlcm.connections.{$connection}.partner.webhook_secret");
         }
 
-        // Verify over the WIRE values, not the framework's. A stock app runs TrimStrings and
-        // ConvertEmptyStringsToNull in the global stack before this middleware, so
-        // $request->all() has already been rewritten — and an hmac checked against
-        // rewritten input refuses a delivery WLCM signed correctly, which no merchant can
-        // fix without disabling TrimStrings application-wide. Only the base is rebuilt;
-        // family detection, the 422 checks and the payload handed downstream are
-        // unchanged. A body that is not a json object falls back to the parsed input,
-        // which is the pre-existing behaviour rather than a new refusal.
-        $decoded = json_decode($request->getContent(), true);
-        $signedData = is_array($decoded) ? $decoded : $requestData;
-        $signedData['signature'] = $signature;
-
-        /** @var WebhookPayloadShape&SubscriptionWebhookPayloadShape $signedData */
-        $signed = $isSubscription
-            ? SubscriptionWebhookPayload::fromArray($signedData, $connection)
-            : WebhookPayload::fromArray($signedData, $connection);
-
-        $expected = hash_hmac('sha256', $signed->signatureBase(), $secret);
+        // The base comes off the SAME payload that gets dispatched. Deriving it from a
+        // second object is what allowed the two to disagree.
+        $expected = hash_hmac('sha256', $payload->signatureBase(), $secret);
 
         if (! hash_equals($expected, $payload->signature)) {
             abort(403, 'Invalid webhook signature');
@@ -157,6 +145,9 @@ final readonly class VerifyWebhookSignature
         }
 
         $request->attributes->set('wlcm_payload', $payload);
+        // The controller must log the document we verified, not re-read the request and
+        // get a different one.
+        $request->attributes->set('wlcm_data', $requestData);
 
         return $next($request);
     }
