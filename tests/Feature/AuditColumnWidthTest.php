@@ -122,17 +122,14 @@ final class AuditColumnWidthTest extends TestCase
     }
 
     /**
+     * Two reasons keys are escaped rather than left alone, both of them engine facts.
      * Postgres truncates a text value at the first NUL byte and stores the head with no
-     * error; mysql stores the whole thing. Same package, same delivery, two different
-     * stored ids — and on `order_id` that silently changes what the row correlates to.
-     * Stripping makes every engine agree.
-     */
-    /**
-     * Only values were stripped, and a signed delivery may carry any extra KEY it likes —
-     * the base covers four fields. On pgsql a NUL in a key makes `request_body::jsonb`,
-     * `->>` and `json_each_text` all raise 22P05, the exact error the strip prevents.
-     */
-    /**
+     * error while mysql stores the whole thing — same delivery, two different stored ids,
+     * and on `order_id` that silently changes what the row correlates to. And a signed
+     * delivery may carry any extra KEY it likes, since the base covers four fields: on
+     * pgsql a NUL in a key makes `request_body::jsonb`, `->>` and `json_each_text` all
+     * raise 22P05, the exact error the strip prevents.
+     *
      * Measured, not argued — the suffix scheme this replaces lost one field at arity 3,
      * two at arity 4, and overwrote a merchant key literally named `notehidden~1`. Each
      * row asserts the OUTPUT KEY COUNT equals the input count, which is the property that

@@ -68,16 +68,14 @@ final class WebhookTest extends TestCase
     /**
      * Both signature bases are bare colon joins with no domain tag, so a payment base
      * `{order_id}:{payment_id}:{state}:{timestamp}` is byte-identical to a subscription
-     * base `{external_order_id}:{event}:{timestamp}` when the reference carries the
-     * colon. A captured payment delivery could therefore be replayed as a subscription
-     * one with its signature UNCHANGED. Refusing an event that is not a `subscription.`
-     * kind closes the payment->subscription direction without touching the wire format
-     * or constraining merchant free text.
-     */
-    /**
-     * There are TWO ways to split `order_id:payment_id:state` across the subscription
-     * base, and only one of them yields a numeric event. Both must be refused, or the
-     * guard closes the tidy half of the attack and leaves the other open.
+     * base `{external_order_id}:{event}:{timestamp}` when the reference carries the colon.
+     * A captured payment delivery can therefore be replayed as a subscription one with its
+     * signature UNCHANGED.
+     *
+     * What closes it is a colon refused in `event` and `external_order_id`, NOT a check
+     * that the event is a `subscription.` kind — that rule was considered and rejected,
+     * because observed event names are not exhaustive and refusing an unfamiliar but
+     * legitimate one would lose a real event.
      *
      * @return array<string, array{string, string, string}>
      */

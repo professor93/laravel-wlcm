@@ -80,10 +80,9 @@ final class ServerIdFidelityTest extends TestCase
     }
 
     /**
-     * A malformed amount that is not negative throws out of `Tiyin::fromSumString` inside
-     * the claim, before any log write and outside the controller's try. The delivery 500s
-     * and leaves NO trace at all — and WLCM does not retry. The missing audit row is the
-     * defect more than the status code, so that is what this asserts.
+     * A malformed amount that is not negative used to throw out of `Tiyin::fromSumString`
+     * inside the claim, outside the controller's try: the delivery 500s, and WLCM does not
+     * retry. It is now refused by the middleware as a 422 before any claim exists.
      *
      * @return array<string, array{string}>
      */
@@ -99,7 +98,7 @@ final class ServerIdFidelityTest extends TestCase
     }
 
     #[DataProvider('malformedAmounts')]
-    public function test_a_malformed_amount_is_refused_with_an_audit_trail(string $amount): void
+    public function test_a_malformed_amount_is_refused_before_a_claim_exists(string $amount): void
     {
         Event::fake();
         $data = $this->webhookData(self::PAYMENT_A);
@@ -109,6 +108,11 @@ final class ServerIdFidelityTest extends TestCase
 
         Event::assertNotDispatched(PaymentSucceeded::class);
         $this->assertSame(0, WlcmTransaction::query()->count(), 'a refused delivery left a claim row');
+        // Pinned, not incidental: a middleware refusal writes NO audit row, because the
+        // log write lives in the controller and the request never reaches it. The old
+        // name for this test promised an audit trail that has never existed. If refusals
+        // ever start being logged, this fails and the claim above gets rewritten with it.
+        $this->assertSame(0, WlcmLog::query()->count(), 'a middleware refusal is unlogged by design');
     }
 
     public function test_two_luhn_coincident_payment_ids_stay_two_transactions(): void

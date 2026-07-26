@@ -82,7 +82,7 @@ final readonly class VerifyWebhookSignature
         // is that a merchant reference may not contain a colon — there is no escape for
         // that field, so it is documented rather than worked around.
         //
-        // Scalar-gated: a non-scalar keeps its "Missing field" answer from the loop below.
+        // Scalar-gated: a non-scalar keeps its "Missing field" answer from the loop above.
         foreach (['event', 'external_order_id'] as $field) {
             $value = $data[$field] ?? null;
 
