@@ -23,6 +23,9 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - BREAKING: `TransactionStore::applyWebhook`, `markProcessed`, `claimSubscription` and `markSubscriptionProcessed` take a `string $token`, and `releaseClaim`/`releaseSubscriptionClaim` are new. A rebound store must decide the claim by an affected-row count, never by reading `processed_at`
 - BREAKING: a webhook state moving *backward* on the same `payment_id` is now refused as `stale` instead of dispatching again
 - A required webhook field that is present but empty is now a 422, matching a missing one
+- BREAKING: `LogStore::webhook()` takes a fourth `array $ids` argument, mirroring `out()`. `LogStore` is a documented rebinding point, so an implementation written against the three-argument signature will fatal on upgrade
+- A dispatch that throws now appends a second audit entry with `result = 'failed'`; `ok` means the claim was taken and dispatch began, so an `ok` with no successor is a worker that died mid-dispatch
+- A subscription `external_order_id` may no longer contain a colon
 - Partner info reads `/partners/me`; the documented `/integrations/me` has no route
 - Card OTP confirm posts to `/integrations/payment/card/confirm`
 - Fixed split amounts ship as SUM by default — the server compares fixed totals against the payment's SUM value, though the docs claim tiyin
@@ -36,6 +39,11 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Concurrent identical webhook deliveries dispatched the money-path event up to once per copy (deterministically once per copy on the subscription path). A delivery is now claimed by one atomic write whose affected-row count is the verdict — a conditional `UPDATE`, or an `INSERT` arbitrated by the unique index on a cold race — so exactly one copy dispatches and the losers log `inflight`, or `duplicate` if the winner already finished
 - A slow dispatch could stamp a *later* delivery's claim as processed, and that later delivery's redelivery was then answered `duplicate` — its event never fired again. Claims carry a per-attempt token and a dispatch can only stamp its own
 - A backward state transition on one `payment_id` re-dispatched a delivery still in flight; the ladder is now forward-only
+- A webhook whose signature was verified over the raw body while the dispatched payload came from `$request->all()` could be forged wholesale: under a non-JSON content type those are two different documents, so a captured signature authenticated the body while the query string supplied `order_id`, `payment_id`, `amount` and `external_id`. Everything now derives from one document
+- A captured payment delivery could be replayed as a subscription with its signature unchanged, because both signature bases are bare colon joins; a colon in `event` or `external_order_id` is now refused
+- A negative `amount` stored as a negative money value on PostgreSQL while MySQL rejected the write; it is now a 422 on both
+- A body deeper than 64 levels is reshaped before the audit write — MySQL refuses a JSON document over 100 levels deep and the swallowed failure left a dispatched delivery with no audit row at all
+- NUL bytes are stripped from stored ids, logged values and object keys: PostgreSQL truncates a value at the first NUL and errors on JSON access to one, while MySQL stores it, so the two engines disagreed about what a delivery said
 - Two distinct subscription deliveries whose reference or event contained a colon produced the same `delivery_key` and the second was swallowed as a duplicate with no events fired; the preimage is now length-prefixed and injective
 - The webhook signature was verified against framework-parsed input, so a stock app's `TrimStrings` could make a correctly signed delivery fail verification with 403; it is now verified against the raw request body
 - Classification reads are pinned to the write connection: on a read/write split they could previously miss a just-committed claim on a lagging replica and either suppress the dispatch outright or 500 the delivery
@@ -43,6 +51,7 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - An unknown log driver, a bad tolerance value or a missing secret throws on use instead of silently disabling the feature
 
 ### Security
+- A PAN split by a NUL byte (`4111111111\0111111`) was logged in the clear: the Luhn scan never saw it as one number. Stripping NUL before the scan closed a masking bypass
 - Secrets, tokens and signatures dropped, PANs truncated, OTPs and passwords starred before anything reaches a log store
 - Luhn-gated PAN scrub over free text as well as keyed fields — exception messages, error bodies and webhook payloads
 - Webhook signatures verified before any listener runs; an invalid signature is a 403 and nothing dispatches

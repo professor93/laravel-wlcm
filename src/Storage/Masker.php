@@ -74,6 +74,15 @@ final class Masker
     public static function scrubProse(array $data): array
     {
         foreach ($data as $key => $value) {
+            // Keys carry NUL too, and only values were ever rewritten. A signed delivery
+            // can add any extra key it likes — only four fields are in the base — so
+            // `note\0hidden` reached the blob and made pgsql's ::jsonb, ->> and
+            // json_each_text all raise 22P05, which is the error the strip exists to stop.
+            if (is_string($key) && str_contains($key, "\0")) {
+                unset($data[$key]);
+                $key = str_replace("\0", '', $key);
+            }
+
             $data[$key] = match (true) {
                 is_string($value) => self::scrubPans($value),
                 is_int($value) => ($s = self::scrubPans((string) $value)) === (string) $value ? $value : $s,

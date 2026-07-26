@@ -125,6 +125,26 @@ final class AuditColumnWidthTest extends TestCase
      * stored ids — and on `order_id` that silently changes what the row correlates to.
      * Stripping makes every engine agree.
      */
+    /**
+     * Only values were stripped, and a signed delivery may carry any extra KEY it likes —
+     * the base covers four fields. On pgsql a NUL in a key makes `request_body::jsonb`,
+     * `->>` and `json_each_text` all raise 22P05, the exact error the strip prevents.
+     */
+    public function test_a_nul_byte_in_an_object_key_cannot_reach_the_blob(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 1, "note\0hidden" => 'x',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
+        );
+
+        $encoded = (string) json_encode(WlcmLog::sole()->response_body);
+        $this->assertStringNotContainsString('\u0000', $encoded, 'a NUL survived in an object key');
+        $this->assertStringNotContainsString("\0", $encoded);
+    }
+
     public function test_a_nul_byte_in_an_id_cannot_split_the_value(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -166,7 +186,7 @@ final class AuditColumnWidthTest extends TestCase
 
         $log = WlcmLog::sole();
         $this->assertIsArray($log->response_body);
-        $this->assertSame('depth', $log->response_body['wlcm_reshaped'] ?? null, 'the reshape was not recorded');
+        $this->assertSame(['reshaped' => 'depth'], $log->response_body['_wlcm'] ?? null, 'the reshape was not recorded');
         // Nothing discarded — the whole body is still there, encoded.
         $encoded = $log->response_body['body'] ?? '';
         $this->assertIsString($encoded);

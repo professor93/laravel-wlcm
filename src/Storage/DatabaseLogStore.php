@@ -29,7 +29,7 @@ final class DatabaseLogStore implements LogStore
         // Nothing is discarded: the whole body survives as one encoded string, and the
         // marker says why the shape changed.
         return [
-            'wlcm_reshaped' => 'depth',
+            '_wlcm' => ['reshaped' => 'depth'],
             'body' => json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR),
         ];
     }
