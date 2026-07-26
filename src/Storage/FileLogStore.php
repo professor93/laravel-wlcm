@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 use RuntimeException;
 use Throwable;
+use Uzbek\Wlcm\Support\ConfigToggle;
 
 final class FileLogStore implements LogStore
 {
@@ -75,7 +76,7 @@ final class FileLogStore implements LogStore
 
     private function enabled(): bool
     {
-        return config('wlcm.storage.logs', false) === 'file';
+        return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
     }
 
     /** @param array<string, mixed> $entry */

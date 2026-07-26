@@ -675,14 +675,30 @@ final class LogDriversTest extends TestCase
         return $keys;
     }
 
-    public function test_database_driver_stays_silent_while_another_driver_is_selected(): void
+    /**
+     * TRADE RECORDED, not an oversight. This used to assert that a driver instance stays
+     * silent whenever a DIFFERENT driver is configured — and that self-disqualification
+     * is precisely what discarded the whole audit trail on a runtime driver flip. A
+     * driver cannot tell "I was resolved and the config moved under me" from "I am not
+     * the chosen one"; the two readings are the same condition, so one had to go.
+     *
+     * What is kept: silence is governed by the on/off toggle, which is the case that
+     * actually reaches production, since the container resolves exactly one driver.
+     * What is given up: hand-constructing a second driver alongside the resolved one now
+     * writes through both. Nothing in the package does that.
+     */
+    public function test_a_driver_writes_on_the_toggle_not_on_driver_identity(): void
     {
         $this->useFileDriver();
         $this->fakeCheckout();
 
+        // Another driver is selected, but logging is ON: the instance you hold writes.
         (new DatabaseLogStore)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+        $this->assertSame(1, WlcmLog::query()->count());
 
-        $this->assertSame(0, WlcmLog::query()->count());
+        config(['wlcm.storage.logs' => false]);
+        (new DatabaseLogStore)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+        $this->assertSame(1, WlcmLog::query()->count(), 'a disabled sink still wrote');
     }
 
     public function test_runtime_toggle_off_and_on_still_works(): void
@@ -700,7 +716,16 @@ final class LogDriversTest extends TestCase
         $this->assertCount(1, $this->lines($path));
     }
 
-    public function test_driver_switch_after_resolution_needs_a_rebind(): void
+    /**
+     * A driver switch after resolution still needs a rebind to take EFFECT — but the
+     * resolved driver keeps writing, it does not go silent.
+     *
+     * This test previously asserted the opposite, that nothing was written anywhere. That
+     * was pinning the defect: each driver asked "am I the configured driver" and
+     * disqualified itself, so a flip in a warm process discarded the whole audit trail
+     * with no error. The assertion is inverted here on purpose.
+     */
+    public function test_a_driver_switch_after_resolution_keeps_the_resolved_driver(): void
     {
         $path = $this->useFileDriver();
         $this->fakeCheckout();
@@ -709,7 +734,10 @@ final class LogDriversTest extends TestCase
         config(['wlcm.storage.logs' => 'log']);
         $logged = $this->captureLogContexts(fn () => $this->checkout());
 
-        $this->assertFileDoesNotExist($path);
+        // The resolved file driver still writes...
+        $this->assertFileExists($path);
+        // ...and the newly named channel driver is still not used, which is the half of
+        // the old claim that was true.
         $this->assertSame([], $logged);
     }
 

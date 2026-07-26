@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Uzbek\Wlcm\Support\ConfigToggle;
 
 final class LogChannelLogStore implements LogStore
 {
@@ -75,7 +76,7 @@ final class LogChannelLogStore implements LogStore
 
     private function enabled(): bool
     {
-        return config('wlcm.storage.logs', false) === 'log';
+        return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
     }
 
     /** @param array<string, mixed> $entry */

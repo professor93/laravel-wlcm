@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 use Throwable;
 use Uzbek\Wlcm\Models\WlcmLog;
+use Uzbek\Wlcm\Support\ConfigToggle;
 
 final class DatabaseLogStore implements LogStore
 {
@@ -121,8 +122,6 @@ final class DatabaseLogStore implements LogStore
 
     private function enabled(): bool
     {
-        $driver = config('wlcm.storage.logs', false);
-
-        return $driver === 'database' || $driver === true || $driver === '1';
+        return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
     }
 }
