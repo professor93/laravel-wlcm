@@ -72,10 +72,16 @@ final class CallerTransactionTest extends TestCase
     }
 
     /**
-     * DO NOT DELETE. The store toggle is read LAST on purpose, so an app that keeps no
-     * transaction rows never resolves a database connection here at all — the package
-     * supports being used as a pure API client with no database configured, and reaching
-     * for transactionLevel() first would break every checkout in one.
+     * DO NOT DELETE. The store toggle is read FIRST on purpose — before the opt-out and
+     * before any connection — so an app that keeps no transaction rows never resolves a
+     * database connection here at all. The package supports being used as a pure API
+     * client with no database configured, and reaching for transactionLevel() ahead of
+     * that read would break every checkout in one.
+     *
+     * (This docblock said LAST until an eighth review caught it: it described an
+     * intermediate ordering that was abandoned, while the assertion below only passes
+     * because the shipped code reads it first. Kept as a note because a comment that
+     * contradicts the code it guards is worse than no comment.)
      */
     public function test_the_store_toggle_is_read_before_any_connection(): void
     {

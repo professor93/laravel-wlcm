@@ -39,8 +39,15 @@ final class MissingConfigurationException extends WlcmException
      * would split one record into two and a control byte could corrupt the line — hence
      * the escaping and the length cap rather than plain interpolation.
      *
-     * Null is unreachable here: it is a documented OFF value for every toggle, so nothing
-     * rejects it, and it doubles as "no value supplied" for callers that cannot show one.
+     * Null never reaches this method, but NOT for the reason first written here. The stated
+     * reason — "null is a documented OFF value for every toggle, so nothing rejects it" —
+     * is false: `leaseSeconds()` rejects null explicitly, since that key has no null
+     * disable. What actually holds is the ternary in forKey(): null is the "no value
+     * supplied" sentinel, so it is filtered before this method is called.
+     *
+     * The cost of using null as that sentinel, stated rather than hidden: a null
+     * `lease_seconds` produces a message with no value shown. The accepted-values text
+     * carries the information instead ("there is no null disable").
      */
     private static function render(mixed $value): string
     {
