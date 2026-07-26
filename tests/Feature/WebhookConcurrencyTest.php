@@ -289,9 +289,11 @@ final class WebhookConcurrencyTest extends TestCase
             $elapsedMs = (hrtime(true) - $started) / 1_000_000;
         }
 
-        // Two waits between three attempts, 5ms minimum each.
+        // Four waits between five attempts, 5ms minimum each. Pinning the budget rather
+        // than the constant: dropping CLAIM_ATTEMPTS back silently un-measures the rate
+        // that justified raising it.
         $this->assertGreaterThanOrEqual(
-            10,
+            20,
             $elapsedMs,
             'all three attempts burned inside one window — the retry never gave anyone time to commit',
         );

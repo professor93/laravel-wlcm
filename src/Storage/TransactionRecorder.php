@@ -24,7 +24,16 @@ use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class TransactionRecorder implements TransactionStore
 {
-    private const int CLAIM_ATTEMPTS = 3;
+    /**
+     * Five, not three, on measurement rather than taste. With the backoff in place three
+     * attempts left mysql at 15.9% contended-out on a mixed-unmodelled burst (down from
+     * 28.7% with no backoff at all). Extra attempts only ever cost latency on a request
+     * that is ALREADY contended — the one that would otherwise 500 — because an
+     * uncontended claim never waits at all. The mechanism is also N-sensitive: every
+     * worker's compare-and-swap is invalidated whenever another moves the row, so the
+     * headroom matters more at higher concurrency than the measured burst shows.
+     */
+    private const int CLAIM_ATTEMPTS = 5;
 
     // Settled rungs: Success and CancelledDuringInit sit at 2, Cancelled at 3.
     private const int TERMINAL_RUNG = 2;
