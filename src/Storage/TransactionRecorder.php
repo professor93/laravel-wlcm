@@ -195,7 +195,7 @@ final class TransactionRecorder implements TransactionStore
         ?string $paymentId,
         int $lease,
     ): ?WebhookOutcome {
-        $now = now();
+        $now = self::utcNow();
         $cutoff = $now->copy()->subSeconds($lease);
         $horizon = $now->copy()->addSeconds($lease);
 
@@ -365,7 +365,7 @@ final class TransactionRecorder implements TransactionStore
             // Own claim only. A later transition may already hold this row, and stamping
             // ITS claim processed swallows that delivery's redelivery for good.
             ->where('dispatch_token', $token)
-            ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
+            ->update(['processed_at' => self::utcNow(), 'dispatch_token' => null, 'claimed_at' => null]);
     }
 
     // Release, not mark: the dispatch died, so the next redelivery must run it again —
@@ -389,7 +389,7 @@ final class TransactionRecorder implements TransactionStore
         $connection = ColumnFit::value('connection', $payload->connection);
 
         for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; $attempt++) {
-            $now = now();
+            $now = self::utcNow();
             $cutoff = $now->copy()->subSeconds($lease);
             $horizon = $now->copy()->addSeconds($lease);
 
@@ -481,7 +481,7 @@ final class TransactionRecorder implements TransactionStore
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('delivery_key', $this->subscriptionKey($payload))
             ->where('dispatch_token', $token)
-            ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
+            ->update(['processed_at' => self::utcNow(), 'dispatch_token' => null, 'claimed_at' => null]);
     }
 
     public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void
@@ -592,5 +592,19 @@ final class TransactionRecorder implements TransactionStore
     private static function claimColumns(string $token, Carbon $now): array
     {
         return ['dispatch_token' => $token, 'claimed_at' => $now, 'processed_at' => null];
+    }
+
+    /**
+     * Claim timestamps live in UTC, written and compared.
+     *
+     * They used to be naive local time, so changing the app timezone put the write and
+     * the read on different clocks: a seconds-old claim read hours stale, deadClaim()
+     * handed it to a second worker, and the money event fired twice. Same class as the
+     * second-resolution bug — two values compared that were never on the same clock —
+     * and the same remedy: make the clock explicit rather than ambient.
+     */
+    private static function utcNow(): Carbon
+    {
+        return Carbon::now('UTC');
     }
 }

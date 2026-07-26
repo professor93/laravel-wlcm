@@ -180,6 +180,44 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
     }
 
+    /**
+     * Claims are stored and compared as naive local time, so changing the app timezone
+     * puts the write and the read on different clocks. A seconds-old claim then reads
+     * hours stale, `deadClaim()` hands it to a second worker, and the money event fires
+     * twice — the same class as the second-resolution bug: two values compared that were
+     * never on the same clock.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function shiftedTimezones(): array
+    {
+        return ['ahead' => ['Asia/Tashkent'], 'behind' => ['America/Los_Angeles']];
+    }
+
+    #[DataProvider('shiftedTimezones')]
+    public function test_a_claim_survives_an_app_timezone_change(string $timezone): void
+    {
+        config(['app.timezone' => 'UTC']);
+        date_default_timezone_set('UTC');
+
+        $store = app(TransactionStore::class);
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-a'));
+
+        // Same process, same seconds-old claim, different configured timezone.
+        config(['app.timezone' => $timezone]);
+        date_default_timezone_set($timezone);
+
+        try {
+            $this->assertSame(
+                WebhookOutcome::InFlight,
+                $store->applyWebhook($this->payload('2'), 'tok-b'),
+                'a seconds-old claim was reclaimed after a timezone change',
+            );
+        } finally {
+            date_default_timezone_set('UTC');
+        }
+    }
+
     public function test_a_hard_killed_claim_is_only_retaken_after_the_lease(): void
     {
         $store = app(TransactionStore::class);
