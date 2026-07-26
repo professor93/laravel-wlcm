@@ -80,6 +80,20 @@ final class TransactionRecorder implements TransactionStore
             ->orWhere('claimed_at', '>', $horizon));
     }
 
+    /**
+     * Jittered pause between claim attempts. Three attempts with no pause span well under
+     * a millisecond, which is shorter than the single round trip a competing claim needs
+     * to commit — so the budget was spent without anyone making progress. Two of these
+     * waits give the retry 10-50ms, one to two orders of magnitude more than that round
+     * trip. Jitter so a burst does not re-collide in lockstep.
+     */
+    private static function backoff(int $attempt): void
+    {
+        if ($attempt < self::CLAIM_ATTEMPTS) {
+            usleep(random_int(5_000, 25_000));
+        }
+    }
+
     // Deadlock, serialization failure, sqlite busy. Same set a retrying transaction uses.
     private static function contended(QueryException $e): bool
     {
@@ -137,6 +151,12 @@ final class TransactionRecorder implements TransactionStore
                 if ($outcome !== null) {
                     return $outcome;
                 }
+
+                // The row moved under us. Wait like the contended branch does: with no
+                // pause all three attempts burn inside one sub-millisecond window, the
+                // writer we are losing to never gets to commit, and a delivery 500s on a
+                // race it would have won a few milliseconds later.
+                self::backoff($attempt);
             } catch (UniqueConstraintViolationException $e) {
                 // Lost an insert race. Caught BEFORE QueryException on purpose: bindings
                 // are interpolated into the message the concurrency detector reads, so a
@@ -149,7 +169,7 @@ final class TransactionRecorder implements TransactionStore
                     throw $e;
                 }
 
-                usleep(random_int(5_000, 25_000));
+                self::backoff($attempt);
             }
         }
 
@@ -395,6 +415,8 @@ final class TransactionRecorder implements TransactionStore
                         throw $e;
                     }
 
+                    self::backoff($attempt);
+
                     continue; // Pruned under us; the insert can have it.
                 }
 
@@ -412,7 +434,7 @@ final class TransactionRecorder implements TransactionStore
                     throw $e;
                 }
 
-                usleep(random_int(5_000, 25_000));
+                self::backoff($attempt);
             }
         }
 

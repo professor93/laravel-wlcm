@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\PendingCommand;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -13,6 +15,7 @@ use RuntimeException;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Exceptions\WebhookClaimException;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Storage\LogStore;
@@ -250,6 +253,50 @@ final class WebhookConcurrencyTest extends TestCase
      * claim sitting exactly ON the cutoff tells the two apart, and nothing else in the
      * suite or the battery ever manufactures one.
      */
+    /**
+     * A claim that loses its compare-and-swap re-reads and tries again, but the retry is
+     * only worth having if a competing writer can commit in between. Without a wait all
+     * three attempts burn inside one sub-millisecond window, and the delivery 500s on a
+     * race it would have won a few milliseconds later.
+     */
+    public function test_a_lost_compare_and_swap_waits_before_trying_again(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('0'), 'tok-a');
+
+        // Stand in for a competitor that moves the row between every read and its CAS,
+        // so the swap can never match and the claim exhausts its budget.
+        $moves = 0;
+        DB::listen(function (QueryExecuted $query) use (&$moves): void {
+            if ($moves >= 20 || ! str_contains($query->sql, 'wlcm_transactions')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'select')) {
+                return;
+            }
+
+            $moves++;
+            DB::table('wlcm_transactions')->where('payment_id', '7788')->update(['state' => 30 + $moves]);
+        });
+
+        $started = hrtime(true);
+
+        try {
+            $store->applyWebhook($this->payload('40'), 'tok-b');
+            $this->fail('expected the claim to contend out');
+        } catch (WebhookClaimException) {
+            $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        }
+
+        // Two waits between three attempts, 5ms minimum each.
+        $this->assertGreaterThanOrEqual(
+            10,
+            $elapsedMs,
+            'all three attempts burned inside one window — the retry never gave anyone time to commit',
+        );
+    }
+
     public function test_the_expiry_clamp_gives_a_claim_its_full_lease(): void
     {
         Carbon::setTestNow('2026-07-26 12:00:00');
