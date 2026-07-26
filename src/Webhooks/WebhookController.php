@@ -93,6 +93,20 @@ final readonly class WebhookController
             // hard-killed worker never reaches here — that one waits out lease_seconds.
             $this->transactions->releaseClaim($payload, $token);
 
+            // The 'ok' above records that the claim was taken and dispatch began; it has
+            // to stay, or a hard kill would leave no audit row at all. This second entry
+            // carries the real verdict. Appending rather than updating because the file
+            // and log-channel drivers are append-only — a fix that worked on one of three
+            // drivers is the divergence the other findings are about. An 'ok' with no
+            // successor is now the signature of a worker that died mid-dispatch.
+            // Guarded: report() inside the store can throw, and nothing here may replace
+            // the handler's own throwable.
+            try {
+                $this->logStore->webhook((string) $payload->connection, $requestData, 'failed', $logIds);
+            } catch (Throwable) {
+                //
+            }
+
             throw $e;
         }
 
@@ -148,6 +162,20 @@ final readonly class WebhookController
             }
         } catch (Throwable $e) {
             $this->transactions->releaseSubscriptionClaim($payload, $token);
+
+            // The 'ok' above records that the claim was taken and dispatch began; it has
+            // to stay, or a hard kill would leave no audit row at all. This second entry
+            // carries the real verdict. Appending rather than updating because the file
+            // and log-channel drivers are append-only — a fix that worked on one of three
+            // drivers is the divergence the other findings are about. An 'ok' with no
+            // successor is now the signature of a worker that died mid-dispatch.
+            // Guarded: report() inside the store can throw, and nothing here may replace
+            // the handler's own throwable.
+            try {
+                $this->logStore->webhook((string) $payload->connection, $requestData, 'failed', $logIds);
+            } catch (Throwable) {
+                //
+            }
 
             throw $e;
         }

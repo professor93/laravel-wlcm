@@ -119,6 +119,30 @@ final class AuditColumnWidthTest extends TestCase
         $this->assertSame($declared, $widths);
     }
 
+    /**
+     * Postgres truncates a text value at the first NUL byte and stores the head with no
+     * error; mysql stores the whole thing. Same package, same delivery, two different
+     * stored ids — and on `order_id` that silently changes what the row correlates to.
+     * Stripping makes every engine agree.
+     */
+    public function test_a_nul_byte_in_an_id_cannot_split_the_value(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => "NUL-HEAD-\0-tail", 'state' => 1,
+            'checkout_url' => 'https://c.test/x',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: "NUL-HEAD-\0-tail",
+        );
+
+        foreach ([WlcmLog::sole()->external_id, WlcmTransaction::sole()->external_id] as $stored) {
+            $this->assertStringNotContainsString("\0", (string) $stored, 'a NUL byte reached a stored id');
+            // The tail must survive, not be silently discarded with the separator.
+            $this->assertStringContainsString('tail', (string) $stored);
+        }
+    }
+
     public function test_a_checkout_with_an_over_long_external_id_still_leaves_both_audit_rows(): void
     {
         $externalId = str_pad('REPRO-', 120, 'X');

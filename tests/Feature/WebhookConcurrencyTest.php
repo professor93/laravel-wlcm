@@ -490,6 +490,29 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertNull($row->processed_at);
     }
 
+    /**
+     * `ok` is written before the events fire so a hard kill still leaves an audit row.
+     * That makes it "dispatch began", not "dispatch succeeded" — and a delivery whose
+     * handler threw and returned 500 must not be left described as `ok`.
+     */
+    public function test_a_failed_dispatch_records_its_real_verdict(): void
+    {
+        config(['wlcm.webhook.handler' => ThrowingWebhookHandler::class]);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $this->signed('2'));
+            $this->fail('expected the handler throw to surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->withExceptionHandling();
+
+        $results = WlcmLog::query()->orderBy('id')->pluck('result')->all();
+        $this->assertSame(['ok', 'failed'], $results, 'a 500ed delivery is still described as ok');
+    }
+
     public function test_an_empty_required_field_is_refused_before_any_row_exists(): void
     {
         $data = $this->signed('2');

@@ -54,6 +54,12 @@ final class ColumnFit
     // Lookups cut the same way or a cut row is never found again.
     public static function value(string $column, ?string $text): ?string
     {
+        // Postgres truncates a text value at the first NUL and stores the head with no
+        // error; mysql keeps the whole string. Same delivery, two different stored ids,
+        // and on a correlation column that quietly changes what the row points at. No
+        // legitimate id carries one, so strip before anything else looks at the value.
+        $text = $text === null ? null : str_replace("\0", '', $text);
+
         $width = self::WIDTHS[$column] ?? null;
 
         // Characters, not bytes: varchar(n) is n characters on mysql and pgsql alike.
