@@ -531,9 +531,29 @@ final class TransactionRecorder implements TransactionStore
     {
         return hash_hmac(
             'sha256',
-            "{$payload->externalOrderId}:{$payload->event}:{$payload->timestamp}",
+            self::canonical([$payload->externalOrderId, $payload->event, $payload->timestamp]),
             $this->webhookSecret($payload->connection),
         );
+    }
+
+    /**
+     * Length-prefixed join, because a bare colon join cannot separate its own fields:
+     * ("VIC:VICPAY", "2") and ("VIC", "VICPAY:2") produce the same string. Two genuinely
+     * distinct deliveries then collided on unique(connection, delivery_key) and the second
+     * was answered duplicate with no events — no attacker needed, only a merchant
+     * reference containing a colon. Prefixing each field with its byte length makes the
+     * encoding injective: the reader takes exactly that many bytes, whatever they are.
+     *
+     * This key is ours, not WLCM's wire format, so it is free to change.
+     *
+     * @param  list<string>  $fields
+     */
+    private static function canonical(array $fields): string
+    {
+        return implode('', array_map(
+            static fn (string $field): string => strlen($field).':'.$field.'|',
+            $fields,
+        ));
     }
 
     // Same lookup VerifyWebhookSignature already ran for this delivery, so on the webhook

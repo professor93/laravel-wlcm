@@ -36,6 +36,8 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Concurrent identical webhook deliveries dispatched the money-path event up to once per copy (deterministically once per copy on the subscription path). A delivery is now claimed by one atomic write whose affected-row count is the verdict — a conditional `UPDATE`, or an `INSERT` arbitrated by the unique index on a cold race — so exactly one copy dispatches and the losers log `inflight`, or `duplicate` if the winner already finished
 - A slow dispatch could stamp a *later* delivery's claim as processed, and that later delivery's redelivery was then answered `duplicate` — its event never fired again. Claims carry a per-attempt token and a dispatch can only stamp its own
 - A backward state transition on one `payment_id` re-dispatched a delivery still in flight; the ladder is now forward-only
+- Two distinct subscription deliveries whose reference or event contained a colon produced the same `delivery_key` and the second was swallowed as a duplicate with no events fired; the preimage is now length-prefixed and injective
+- The webhook signature was verified against framework-parsed input, so a stock app's `TrimStrings` could make a correctly signed delivery fail verification with 403; it is now verified against the raw request body
 - Classification reads are pinned to the write connection: on a read/write split they could previously miss a just-committed claim on a lagging replica and either suppress the dispatch outright or 500 the delivery
 - Audit write failures are reported and swallowed so they never break a payment call
 - An unknown log driver, a bad tolerance value or a missing secret throws on use instead of silently disabling the feature

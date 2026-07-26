@@ -83,6 +83,37 @@ final class DeliveryKeySecrecyTest extends TestCase
         $this->assertNull($matched, 'delivery_key is a brute-forceable oracle for the scrubbed pan');
     }
 
+    /**
+     * A bare colon join cannot separate its own fields: ("VIC:VICPAY", "2") and
+     * ("VIC", "VICPAY:2") produce the same preimage. Two genuinely distinct deliveries
+     * then collide on unique(connection, delivery_key) and the second is answered
+     * duplicate with no events — a lost dispatch needing no attacker, only a merchant
+     * reference containing a colon.
+     */
+    public function test_two_distinct_deliveries_cannot_share_a_delivery_key(): void
+    {
+        $recorder = $this->recorder();
+
+        $first = SubscriptionWebhookPayload::fromArray([
+            'event' => '2', 'external_order_id' => 'VIC:VICPAY',
+            'external_user_id' => 'u', 'subscription_id' => 8,
+            'amount' => '10.00', 'status' => 'active', 'timestamp' => self::TIMESTAMP,
+        ], 'main');
+
+        $second = SubscriptionWebhookPayload::fromArray([
+            'event' => 'VICPAY:2', 'external_order_id' => 'VIC',
+            'external_user_id' => 'u', 'subscription_id' => 8,
+            'amount' => '10.00', 'status' => 'active', 'timestamp' => self::TIMESTAMP,
+        ], 'main');
+
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($first, 'tok-a'));
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($second, 'tok-b'));
+
+        $keys = WlcmTransaction::query()->orderBy('id')->pluck('delivery_key')->all();
+        $this->assertCount(2, $keys, 'two distinct deliveries collapsed onto one row');
+        $this->assertNotEquals($keys[0], $keys[1], 'two distinct deliveries share a delivery_key');
+    }
+
     public function test_the_key_is_bound_to_the_connection_secret(): void
     {
         $recorder = $this->recorder();
