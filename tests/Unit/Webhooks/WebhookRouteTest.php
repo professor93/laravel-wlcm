@@ -251,6 +251,13 @@ final class WebhookRouteTest extends TestCase
             ],
 
             // --- false-alarm guards: these must stay silent.
+            // `domain('')` — what `domain(config(...))` yields from an unset key — matches
+            // every host, and `RouteCollection` files it under the DOMAINLESS table. Treating
+            // it as domained would skip the ordering that lets our verifying route win.
+            'empty domain at a capturing uri, ours first' => [
+                fn (Router $r) => $r->domain('')->post('wlcm/{rest}', 'H@h')->where('rest', '.*'),
+                ['main'], true, 'http://localhost/wlcm/webhook/main', 'package', false,
+            ],
             'domained post that reattaches our middleware' => [
                 fn (Router $r) => $r->domain($domain)->post($uri, 'H@h')->middleware(VerifyWebhookSignature::class),
                 ['main'], true, $delivery, 'host-verified', false,

@@ -84,6 +84,10 @@ final class WebhookRoute
      *     not knowable here. So the domain is not matched at all: any domained route that
      *     captures our path unverified is reported.
      *
+     * The split is the one `RouteCollection::addToCollections()` makes, on TRUTHINESS rather
+     * than null — `Route::domain('')`, which `domain(config(...))` produces from an unset
+     * key, carries a domain that matches every host and lives in the domainless table.
+     *
      * That second rule OVER-REPORTS on purpose — it fires for a domained route on a host
      * WLCM never posts to, and an `admin.example.com` catch-all cannot take the slot for
      * deliveries addressed to `api.example.com`. This is a `report()` rather than a refusal,
@@ -127,7 +131,7 @@ final class WebhookRoute
         // Domainless: dispatch order on every host.
         foreach ($probes as $probe) {
             foreach ($routes as $i => $route) {
-                if ($route->getDomain() !== null || ! $copies[$i]->matches($probe, false)) {
+                if (self::isDomained($route) || ! $copies[$i]->matches($probe, false)) {
                     continue;
                 }
 
@@ -143,7 +147,7 @@ final class WebhookRoute
         // on one host says nothing about an unverified one on another.
         foreach ($probes as $probe) {
             foreach ($routes as $i => $route) {
-                if ($route->getDomain() === null || ! $copies[$i]->matches($probe, false)) {
+                if (! self::isDomained($route) || ! $copies[$i]->matches($probe, false)) {
                     continue;
                 }
 
@@ -214,6 +218,12 @@ final class WebhookRoute
         }
 
         return $probes;
+    }
+
+    // Which of RouteCollection's two tables the route lives in.
+    private static function isDomained(Route $route): bool
+    {
+        return (bool) $route->getDomain();
     }
 
     // Route-level middleware only, which is where both we and a deliberate host put it.
