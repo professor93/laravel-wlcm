@@ -30,7 +30,13 @@ final readonly class VerifyWebhookSignature
 
     // Epoch seconds, epoch milliseconds, or an ISO-ish datetime. Anchored, so nothing can
     // be glued in front of it.
-    private const string TIMESTAMP_SHAPE = '/^(?:\d{10}|\d{13}|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/';
+    // \z not $, the same choice Tiyin::fromSumString documents and for the same reason:
+    // PCRE $ matches before a final newline, so "1785065886\n" passed this guard, parsed
+    // as that epoch and dispatched. An amount regex anchored with $ once let "5000\n"
+    // read as 5000 instead of 500000 — a 100x understatement on a money field — and this
+    // guard had drifted back to it, leaving two rules in one delivery disagreeing about
+    // whether a trailing newline exists.
+    private const string TIMESTAMP_SHAPE = '/^(?:\d{10}|\d{13}|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\z/';
 
     public function __construct(private Repository $config) {}
 
@@ -261,11 +267,17 @@ final readonly class VerifyWebhookSignature
             return null;
         }
 
-        if (preg_match('/^\d{13}$/', $timestamp) === 1) {
+        // \z on both numeric branches. Honest status: these two are SUBSUMED by the shape
+        // check above and no test can currently redden them alone — reverting either to $
+        // fails nothing, and that was measured, not assumed. They are kept because these
+        // are the reads that decide what the value MEANS, and a second reading of the same
+        // bytes must not survive here waiting for the shape check to be moved or removed.
+        // The shape check is what is actually detected; treat these as its backstop.
+        if (preg_match('/^\d{13}\z/', $timestamp) === 1) {
             return intdiv((int) $timestamp, 1000);
         }
 
-        if (preg_match('/^\d{10}$/', $timestamp) === 1) {
+        if (preg_match('/^\d{10}\z/', $timestamp) === 1) {
             return (int) $timestamp;
         }
 
