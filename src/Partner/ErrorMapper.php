@@ -84,8 +84,15 @@ final class ErrorMapper
                 is_string($code) && $code !== '' => $code,
                 // Case-insensitive: live codes are UPPER_CASE. Guarded so server prose
                 // cannot masquerade as a code and ride out unscrubbed.
-                is_string($detailCode) && preg_match('/^[A-Za-z0-9_]+$/', $detailCode) === 1 => $detailCode,
-                is_string($detail) && preg_match('/^[a-z0-9_]+$/', $detail) === 1 => $detail,
+                //
+                // \z not $, the choice Tiyin::fromSumString documents: PCRE $ matches
+                // before a final newline, so "invalid_otp\n" slipped both guards. That is
+                // not cosmetic — errorCode() then returns a value a merchant's
+                // === 'invalid_otp' misses, and errorCodeEnum() cannot resolve a code the
+                // package knows, dropping their match into its default arm. A trailing
+                // newline is exactly the prose these guards exist to refuse.
+                is_string($detailCode) && preg_match('/^[A-Za-z0-9_]+\z/', $detailCode) === 1 => $detailCode,
+                is_string($detail) && preg_match('/^[a-z0-9_]+\z/', $detail) === 1 => $detail,
                 default => null,
             };
 

@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Tests\Unit\Partner;
 
 use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
@@ -15,6 +16,7 @@ use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
+use Uzbek\Wlcm\Exceptions\WlcmException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Tests\TestCase;
 
@@ -983,5 +985,54 @@ final class ErrorMappingTest extends TestCase
         $status = Wlcm::partner()->orders()->status(410);
 
         $this->assertFalse($status->isPaid);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>}>
+     *
+     * Both code guards were anchored with `$`, which PCRE matches before a final newline —
+     * the same drift `Tiyin::fromSumString` carries a `\z` and a comment to prevent, and
+     * the fourth instance of it found in this codebase.
+     *
+     * The consequence is not cosmetic. A trailing newline slips the guard, so `errorCode()`
+     * returns "invalid_otp\n": a merchant comparing it to 'invalid_otp' fails, and
+     * `errorCodeEnum()` cannot resolve a code the package genuinely knows, dropping their
+     * `match` into its default arm. It also defeats the guards' own stated purpose, which
+     * is to stop server prose masquerading as a machine code.
+     */
+    public static function newlineBearingCodes(): array
+    {
+        return [
+            'dict detail code' => [['detail' => ['code' => "INVALID_OTP\n", 'message' => 'bad otp']]],
+            'bare snake detail' => [['detail' => "invalid_otp\n"]],
+        ];
+    }
+
+    /** @param array<string, mixed> $body */
+    #[DataProvider('newlineBearingCodes')]
+    public function test_a_code_with_a_trailing_newline_is_not_accepted_as_a_code(array $body): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response($body, 400)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected a WlcmException');
+        } catch (WlcmException $e) {
+            $this->assertNull($e->errorCode(), 'a newline-bearing string was accepted as a machine code');
+        }
+    }
+
+    // The other half: a clean code still resolves, guard included.
+    public function test_a_clean_bare_snake_detail_is_still_a_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'invalid_otp'], 400)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected a WlcmException');
+        } catch (WlcmException $e) {
+            $this->assertSame('invalid_otp', $e->errorCode());
+            $this->assertSame(WlcmErrorCode::InvalidOtp, $e->errorCodeEnum());
+        }
     }
 }
