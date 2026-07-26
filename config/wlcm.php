@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+// A published copy of this file is merged recursively under these defaults: keys
+// you keep win, keys you drop fall back to the packaged value. Deleting a block
+// here therefore cannot remove it — a connection you delete comes back.
 return [
     'default' => env('WLCM_CONNECTION', 'main'),
 

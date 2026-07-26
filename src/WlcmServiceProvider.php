@@ -20,7 +20,9 @@ final class WlcmServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/wlcm.php', 'wlcm');
+        // Recursive, not array_merge: a published config replaces whole sub-arrays
+        // under a shallow merge, and every key it predates goes missing.
+        $this->replaceConfigRecursivelyFrom(__DIR__.'/../config/wlcm.php', 'wlcm');
 
         // singletonIf, not singleton, on all three. A host that binds a store BEFORE
         // providers register — which is exactly what
