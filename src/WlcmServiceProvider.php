@@ -97,10 +97,18 @@ final class WlcmServiceProvider extends ServiceProvider
     private function watchForRouteConflict(): void
     {
         $router = $this->app->make(Router::class);
-        $uri = WebhookRoute::uri($this->app->make(Repository::class)->get('wlcm.webhook.path'));
+        $config = $this->app->make(Repository::class);
+        $path = $config->get('wlcm.webhook.path');
+        $uri = WebhookRoute::uri($path);
 
-        $this->app->booted(function () use ($router, $uri): void {
-            if (WebhookRoute::shadow($router, $uri) === null) {
+        // One real connection name, so the probe can exercise the form of our route that
+        // carries a connection segment — the segment is whereIn-constrained to configured
+        // names, so an invented value would not match our own route.
+        $connections = array_keys((array) $config->get('wlcm.connections', []));
+        $sample = $connections === [] ? null : (string) $connections[0];
+
+        $this->app->booted(function () use ($router, $path, $sample, $uri): void {
+            if (WebhookRoute::shadow($router, $path, $sample) === null) {
                 return;
             }
 
