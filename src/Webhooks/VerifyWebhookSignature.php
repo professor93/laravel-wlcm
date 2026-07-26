@@ -41,6 +41,18 @@ final readonly class VerifyWebhookSignature
             }
         }
 
+        // `amount` rides outside the signature base by WLCM's design, so one captured
+        // delivery lets anyone set it freely. A negative reaches an unsignedBigInteger
+        // column that mysql rejects with a 500 and postgres accepts — storing negative
+        // money and firing the events on the same input mysql refuses. Refused here, on
+        // both engines, before any claim can exist. Refusing beats clamping: a silently
+        // corrected money value is worse than a delivery someone can be asked to resend.
+        $amount = $request->input('amount');
+
+        if (! $isSubscription && is_scalar($amount) && str_starts_with(ltrim((string) $amount), '-')) {
+            abort(422, 'Invalid field: amount');
+        }
+
         $signature = $request->input('signature');
 
         // Some deliveries carry signature only in X-Webhook-Signature header.

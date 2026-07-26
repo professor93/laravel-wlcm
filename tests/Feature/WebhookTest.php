@@ -35,6 +35,35 @@ final class WebhookTest extends TestCase
         return $data;
     }
 
+    /**
+     * `amount` rides OUTSIDE the signature base by WLCM's design, so one captured
+     * delivery lets anyone set it freely. A negative reaches an `unsignedBigInteger`
+     * column that mysql rejects with a 500 and postgres accepts — storing a negative
+     * money value and firing the events. Same input, opposite outcomes, so it is refused
+     * on both before any claim exists.
+     */
+    public function test_a_negative_amount_is_refused(): void
+    {
+        Event::fake();
+        $data = $this->payload();
+        $data['amount'] = '-100.00';
+
+        $this->postJson('/wlcm/webhook', $data)->assertStatus(422);
+
+        Event::assertNotDispatched(PaymentSucceeded::class);
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    public function test_a_zero_amount_is_still_accepted(): void
+    {
+        Event::fake();
+        $data = $this->payload();
+        $data['amount'] = '0.00';
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        Event::assertDispatched(PaymentSucceeded::class);
+    }
+
     public function test_success_webhook_fires_events(): void
     {
         Event::fake();
