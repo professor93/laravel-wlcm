@@ -48,20 +48,33 @@ final class TransactionRecorder implements TransactionStore
     }
 
     /**
-     * A live claim: unprocessed, held, and stamped inside the window. Future-dated is
-     * treated as dead — a server whose clock runs ahead would otherwise hold the lease
-     * for the skew, and a suppression that never expires is a lost payment.
+     * A live claim: unprocessed, held, and stamped inside the window.
+     *
+     * Both bounds are deliberately slack by one lease, because timestamps here are
+     * second-resolution on the column AND on the binding (Grammar::getDateFormat drops
+     * the fraction in php, so every engine truncates alike). Two workers milliseconds
+     * apart can therefore land on opposite sides of a second boundary:
+     *
+     * - $horizon, not $now: a claim stamped a tick after the reader's own snapshot is
+     *   live, not bogus. Comparing against $now let the loser call the winner's claim
+     *   future-dated and steal it — two dispatches. Only a claim more than a whole lease
+     *   ahead can be real clock skew, and that one must still be reclaimable or a
+     *   skewed host strands the row forever.
+     * - strict <, not <=: truncation floors the stored stamp, so <= could call a claim
+     *   expired up to a second early — the harmful direction, a live handler dispatched
+     *   twice. Strict < guarantees a full lease elapsed and pushes the rounding into the
+     *   benign direction, delaying recovery of a dead claim by at most one second.
      *
      * @param  Builder<WlcmTransaction>  $query
      * @return Builder<WlcmTransaction>
      */
-    private static function deadClaim(Builder $query, Carbon $now, Carbon $cutoff): Builder
+    private static function deadClaim(Builder $query, Carbon $cutoff, Carbon $horizon): Builder
     {
         return $query->where(fn (Builder $dead): Builder => $dead
             ->whereNull('dispatch_token')
             ->orWhereNull('claimed_at')
-            ->orWhere('claimed_at', '<=', $cutoff)
-            ->orWhere('claimed_at', '>', $now));
+            ->orWhere('claimed_at', '<', $cutoff)
+            ->orWhere('claimed_at', '>', $horizon));
     }
 
     // Deadlock, serialization failure, sqlite busy. Same set a retrying transaction uses.
@@ -152,6 +165,7 @@ final class TransactionRecorder implements TransactionStore
     ): ?WebhookOutcome {
         $now = now();
         $cutoff = $now->copy()->subSeconds($lease);
+        $horizon = $now->copy()->addSeconds($lease);
 
         $row = WlcmTransaction::query()
             ->where('connection', $connection)
@@ -168,8 +182,8 @@ final class TransactionRecorder implements TransactionStore
                         ->whereKey($row->getKey())
                         ->where('state', $payload->state)
                         ->whereNull('processed_at'),
-                    $now,
                     $cutoff,
+                    $horizon,
                 )->update(self::claimColumns($token, $now));
 
                 return $taken === 1
@@ -316,6 +330,7 @@ final class TransactionRecorder implements TransactionStore
         for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; $attempt++) {
             $now = now();
             $cutoff = $now->copy()->subSeconds($lease);
+            $horizon = $now->copy()->addSeconds($lease);
 
             try {
                 WlcmTransaction::query()->create(ColumnFit::row([
@@ -339,8 +354,8 @@ final class TransactionRecorder implements TransactionStore
                         ->where('connection', $connection)
                         ->where('delivery_key', $key)
                         ->whereNull('processed_at'),
-                    $now,
                     $cutoff,
+                    $horizon,
                 )->update(['dispatch_token' => $token, 'claimed_at' => $now]);
 
                 if ($taken === 1) {

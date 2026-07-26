@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\PendingCommand;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -24,6 +25,12 @@ use Uzbek\Wlcm\Webhooks\WlcmWebhookHandler;
 final class WebhookConcurrencyTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
     protected function defineDatabaseMigrations(): void
     {
@@ -141,6 +148,56 @@ final class WebhookConcurrencyTest extends TestCase
 
         WlcmTransaction::sole()->update(['claimed_at' => now()->subMinutes(5)]);
 
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    /**
+     * Sub-second precision is dropped on both the write and the WHERE binding
+     * (Grammar::getDateFormat is 'Y-m-d H:i:s', and both columns are second-resolution),
+     * so two workers milliseconds apart can land on opposite sides of a second boundary.
+     * The loser then reads the winner's live claim as future-dated and steals it. Not an
+     * engine quirk — the truncation happens in php, so every engine can do this.
+     */
+    public function test_a_claim_stamped_across_a_second_boundary_is_not_stolen(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        $store = app(TransactionStore::class);
+
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+        // The winner stamped one tick later than the loser's own frozen $now.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSecond()]);
+
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+    }
+
+    public function test_a_subscription_claim_across_a_second_boundary_is_not_stolen(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        $store = app(TransactionStore::class);
+
+        $store->claimSubscription($this->subscription(), 'tok-a');
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSecond()]);
+
+        $this->assertSame(WebhookOutcome::InFlight, $store->claimSubscription($this->subscription(), 'tok-b'));
+    }
+
+    /**
+     * Pins the horizon itself. Widening it past one lease would let a skewed host hold a
+     * row longer and longer; narrowing it back toward $now re-opens the steal above.
+     */
+    public function test_the_future_clamp_sits_exactly_one_lease_out(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        config(['wlcm.webhook.lease_seconds' => 60]);
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Inside the horizon: still someone's live claim.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSeconds(60)]);
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+
+        // Past it: no clock is that wrong, so the row must be recoverable.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSeconds(61)]);
         $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
     }
 
