@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Support\Facades\Event;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Uzbek\Wlcm\Events\PaymentCancelled;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionActivated;
@@ -73,19 +74,56 @@ final class WebhookTest extends TestCase
      * kind closes the payment->subscription direction without touching the wire format
      * or constraining merchant free text.
      */
-    public function test_a_payment_delivery_cannot_be_replayed_as_a_subscription(): void
+    /**
+     * There are TWO ways to split `order_id:payment_id:state` across the subscription
+     * base, and only one of them yields a numeric event. Both must be refused, or the
+     * guard closes the tidy half of the attack and leaves the other open.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function collisionSplits(): array
+    {
+        return [
+            'numeric event' => ['1254:7788', '2'],
+            'colon event' => ['1254', '7788:2'],
+        ];
+    }
+
+    #[DataProvider('collisionSplits')]
+    public function test_a_payment_delivery_cannot_be_replayed_as_a_subscription(string $reference, string $event): void
     {
         Event::fake();
         $payment = $this->payload();
 
         $this->postJson('/wlcm/webhook', [
-            'event' => '2',
-            'external_order_id' => '1254:7788',
+            'event' => $event,
+            'external_order_id' => $reference,
             'timestamp' => $payment['timestamp'],
             'signature' => $payment['signature'], // byte-identical, never recomputed
         ])->assertStatus(422);
 
         Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    /**
+     * The guard must not key on a naming convention. WLCM has already been seen emitting
+     * states its own docs omit, so an event kind we have not observed has to keep working
+     * — refusing one would lose a real delivery, which outranks the tidier rule.
+     */
+    public function test_an_unfamiliar_event_kind_is_still_accepted(): void
+    {
+        Event::fake();
+        $data = [
+            'event' => 'billing.retry_scheduled', 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ];
+        // WLCM's signature base stays a colon join — only our own delivery_key preimage
+        // became length-prefixed.
+        $data['signature'] = hash_hmac('sha256', 'order-1001:billing.retry_scheduled:1745740800000', 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        Event::assertDispatched(WebhookReceived::class);
     }
 
     public function test_a_real_subscription_event_still_passes(): void

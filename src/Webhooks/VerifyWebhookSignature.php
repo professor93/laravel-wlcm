@@ -39,11 +39,28 @@ final readonly class VerifyWebhookSignature
         // refusing anything else closes that direction without a wire-format change and
         // without constraining merchant free text. The reverse direction needs a domain
         // tag in both bases, which is WLCM's to change, not ours.
-        // Scalar only: a non-scalar event is unusable for a different reason and keeps its
-        // existing "Missing field" answer from the loop below. Casting catches a bare
-        // integer event, which is exactly the shape the collision needs.
-        if ($isSubscription && is_scalar($event) && ! str_starts_with((string) $event, 'subscription.')) {
-            abort(422, 'Invalid field: event');
+        // A payment base {order_id}:{payment_id}:{state}:{timestamp} and a subscription
+        // base {external_order_id}:{event}:{timestamp} are both bare colon joins, so a
+        // captured payment delivery can replay as a subscription with its signature
+        // UNCHANGED. The forger splits `O:P:S` in one of two places, which is the whole
+        // attack surface: event = "S" (numeric), or event = "P:S" (contains a colon).
+        // Refusing those two shapes closes both deterministically.
+        //
+        // Deliberately NOT a `subscription.` prefix check. Every event we have observed is
+        // a `subscription.` kind, but observed is not exhaustive — WLCM has already been
+        // seen emitting states its own docs omit — and a guard keyed on a naming
+        // convention would 422 a legitimate delivery the first time that assumption
+        // breaks. A lost payment event outranks the tidier rule.
+        //
+        // Scalar-gated: a non-scalar event is unusable for a different reason and keeps
+        // its "Missing field" answer from the loop below. Cast, because the numeric shape
+        // arrives as a bare integer as readily as a string.
+        if ($isSubscription && is_scalar($event)) {
+            $kind = (string) $event;
+
+            if (is_numeric($kind) || str_contains($kind, ':')) {
+                abort(422, 'Invalid field: event');
+            }
         }
 
         foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {

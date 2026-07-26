@@ -712,4 +712,47 @@ final class LogDriversTest extends TestCase
         $this->assertFileDoesNotExist($path);
         $this->assertSame([], $logged);
     }
+
+    /**
+     * The appended `failed` verdict exists because the file and log-channel drivers are
+     * append-only and cannot revise an entry. That argument is only worth anything if the
+     * channel driver actually receives both records.
+     */
+    public function test_a_failed_dispatch_records_both_verdicts_on_the_log_channel(): void
+    {
+        config([
+            'wlcm.storage.logs' => 'log',
+            'wlcm.storage.transactions' => true,
+            'wlcm.webhook.handler' => ThrowingWebhookHandler::class,
+        ]);
+
+        $results = [];
+        Log::listen(function (MessageLogged $message) use (&$results): void {
+            $context = $message->context;
+
+            if (($context['direction'] ?? null) === 'webhook') {
+                $results[] = $context['result'] ?? null;
+            }
+        });
+
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', '1254:7788:2:2026-07-24 12:00:00', 'whsec_test');
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $data);
+            $this->fail('expected the handler throw to surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->withExceptionHandling();
+
+        $this->assertSame(['ok', 'failed'], $results, 'the channel driver did not receive both verdicts');
+    }
 }

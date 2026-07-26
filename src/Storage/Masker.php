@@ -87,6 +87,12 @@ final class Masker
 
     public static function scrubPans(string $text): string
     {
+        // Postgres cannot convert a json value containing an escaped NUL to text —
+        // `request_body::jsonb` and `->>` both error 22P05 — and mysql stores it, so the
+        // blob disagreed with its own id columns once those started stripping. Every
+        // logged string reaches here, so this is where the two surfaces are made to agree.
+        $text = str_replace("\0", '', $text);
+
         $scrubbed = self::scrubRuns($text, $text);
 
         // "%20" before a pan fuses into one luhn-failing run; blanking escape hex frees the pan, same width so offsets hold.
