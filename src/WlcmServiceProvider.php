@@ -100,12 +100,15 @@ final class WlcmServiceProvider extends ServiceProvider
      * baked routes-v7.php in tests/Feature/WebhookRouteCacheConflictTest.php — Laravel's own
      * WithCachedRoutes trait installs the table synchronously and hides all of this.
      *
-     * The second point is registered ONLY when routes are cached, because that is the only
-     * state in which the first one is early. Registering it unconditionally cost every
-     * merchant without a conflict a second full scan of the POST table on every boot —
-     * measured at two scans, where one is enough — to buy nothing: with no cache the table is
-     * already final at booted(). What it does not buy back is a host route registered from an
-     * application booted() callback queued after ours; that was never seen and still is not.
+     * BOTH POINTS UNCONDITIONALLY, and the second one is not redundant when routes are NOT
+     * cached, which is the tempting thing to believe: a host provider that registers its route
+     * from an application booted() callback queued during its own boot() lands AFTER our
+     * watch, and at an identical URI it evicts ours from routes['POST'] and serves deliveries
+     * unverified. Measured: with the second point gated on routesAreCached() that shape
+     * reports nothing while the host route serves; ungated it reports. The cost of keeping it
+     * is one extra scan of the POST table per boot for installations with no conflict —
+     * measured at 0.78ms of probe construction plus a few matches over 300 POST routes — and a
+     * silent unverified endpoint is not worth trading for a millisecond.
      *
      * booted() also covers a provider registered after the app has booted: it runs the
      * callback immediately in that case, and by then the table is installed.
@@ -160,9 +163,6 @@ final class WlcmServiceProvider extends ServiceProvider
         };
 
         $app->booted($watch);
-
-        if ($app->routesAreCached()) {
-            $app->afterBootstrapping(BootProviders::class, $watch);
-        }
+        $app->afterBootstrapping(BootProviders::class, $watch);
     }
 }

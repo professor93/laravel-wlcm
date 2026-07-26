@@ -21,6 +21,7 @@ use PHPUnit\Framework\TestCase;
 use Throwable;
 use Uzbek\Wlcm\Exceptions\WebhookRouteConflictException;
 use Uzbek\Wlcm\Tests\Fixtures\CountingRouteCollection;
+use Uzbek\Wlcm\Tests\Fixtures\LateRouteProvider;
 use Uzbek\Wlcm\Tests\Fixtures\RecordingExceptionHandler;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookRoute;
@@ -160,12 +161,32 @@ final class WebhookRouteCacheConflictTest extends TestCase
     }
 
     /**
-     * THE BOOT BUDGET, pinned because it is not free: `shadow()` asks the collection for the
-     * POST table exactly once per pass, so this counts passes. With no route cache the table
-     * is already final at booted(), and a second pass would cost every merchant who has no
-     * conflict at all a full extra scan on every boot to buy nothing.
+     * A host route registered from an application booted() callback queued AFTER ours — a
+     * provider that defers its route registration — evicts the package route at an identical
+     * URI and serves deliveries unverified. booted() alone sees the table one registration too
+     * early, so this is the row that makes the SECOND watch point load-bearing even with no
+     * route cache, where it otherwise looks like a pure duplicate.
      */
-    public function test_an_uncached_boot_scans_the_post_table_once(): void
+    public function test_a_route_registered_after_the_watch_callback_is_still_reported(): void
+    {
+        [$app, $reported] = $this->bootApplication(alsoRegister: LateRouteProvider::class);
+
+        $serving = $app->make(Router::class)->getRoutes()->match(
+            Request::create('http://localhost/wlcm/webhook/main', 'POST'),
+        );
+
+        $this->assertSame('host.late', $serving->getName(), 'the late route did not take the endpoint');
+        $this->assertNotContains(VerifyWebhookSignature::class, (array) $serving->middleware());
+        $this->assertNotEmpty($this->conflicts($reported), 'a late eviction served unverified and went unreported');
+    }
+
+    /**
+     * THE BOOT BUDGET, pinned because it is not free: `shadow()` asks the collection for the
+     * POST table exactly once per pass, so this counts passes. Two is deliberate and the row
+     * above is why; a THIRD would be someone adding a watch point without noticing the cost,
+     * which is what this guards.
+     */
+    public function test_a_boot_scans_the_post_table_once_per_watch_point(): void
     {
         $counting = new CountingRouteCollection;
 
@@ -174,7 +195,7 @@ final class WebhookRouteCacheConflictTest extends TestCase
         });
 
         $this->assertFalse($app->routesAreCached());
-        $this->assertSame(['POST' => 1], $counting->scans);
+        $this->assertSame(['POST' => 2], $counting->scans);
     }
 
     /**
@@ -230,9 +251,10 @@ final class WebhookRouteCacheConflictTest extends TestCase
      *
      * @param  (callable(Application): void)|null  $beforeBoot  Runs after the container is
      *                                                          wired and before providers boot.
+     * @param  class-string|null  $alsoRegister  A host provider, registered after ours.
      * @return array{Application, RecordingExceptionHandler}
      */
-    private function bootApplication(bool $registerPackage = true, ?callable $beforeBoot = null): array
+    private function bootApplication(bool $registerPackage = true, ?callable $beforeBoot = null, ?string $alsoRegister = null): array
     {
         $app = new Application($this->base);
 
@@ -258,6 +280,10 @@ final class WebhookRouteCacheConflictTest extends TestCase
 
         if ($registerPackage) {
             $app->register(WlcmServiceProvider::class);
+        }
+
+        if ($alsoRegister !== null) {
+            $app->register($alsoRegister);
         }
 
         $app->register(RouteServiceProvider::class);
