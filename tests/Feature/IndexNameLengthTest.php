@@ -63,5 +63,10 @@ final class IndexNameLengthTest extends TestCase
 
         // Or a naming change that produced no indexes at all would pass silently.
         $this->assertGreaterThanOrEqual(9, $checked, 'the index sweep found almost nothing');
+        // Length alone was the wrong property to pin by itself: shortening the names by
+        // hand-naming them ALSO stripped the table prefix, which broke two prefixed
+        // installs sharing one schema. IndexPrefixTest carries that guard, under a
+        // connection that actually has prefix_indexes on — this note exists so the two
+        // are read as one requirement rather than length being "the" index rule.
     }
 }
