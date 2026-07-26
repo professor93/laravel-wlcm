@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Unit\Webhooks;
 
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Throwable;
 use Uzbek\Wlcm\Tests\TestCase;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookRoute;
@@ -77,7 +79,7 @@ final class WebhookRouteTest extends TestCase
         $router->post(WebhookRoute::uri(self::PATH), fn (): string => 'host');
 
         $this->assertNotNull(
-            WebhookRoute::shadow($router, self::PATH, self::CONNECTION),
+            WebhookRoute::shadow($router, self::PATH, [self::CONNECTION]),
             'a host route holding the URI went unreported',
         );
     }
@@ -159,17 +161,196 @@ final class WebhookRouteTest extends TestCase
 
         $this->assertSame(
             $reports,
-            WebhookRoute::shadow($router, self::PATH, self::CONNECTION) !== null,
+            WebhookRoute::shadow($router, self::PATH, [self::CONNECTION]) !== null,
             $reports ? 'an unverified endpoint went unreported' : 'a safe configuration was reported as a conflict',
         );
     }
 
-    private function registerOurs(Router $router): void
+    /**
+     * EVERY DOMAINED SHAPE, plus the two shapes the probe set could not reach. The previous
+     * matrix had exactly one domained cell and it used `domain('localhost')` — the one domain
+     * `Request::create()`'s default host matches — so the domained branch was never the thing
+     * under test, and it under-reported every shape below.
+     *
+     * `serves` is MEASURED here, by the same `getRoutes()->match()` dispatch uses, and it is
+     * asserted alongside the verdict: a row claiming the host takes the endpoint has to prove
+     * it first, or the expectation is worthless.
+     *
+     * @return array<string, array{callable(Router): mixed, list<string>, bool, string, string, bool}>
+     */
+    public static function reachShapes(): array
+    {
+        $uri = WebhookRoute::uri(self::PATH);
+        $domain = 'api.example.com';
+        $delivery = "http://{$domain}/wlcm/webhook/main";
+
+        return [
+            // name => [host route, configured connections, ours first, delivery URL, who serves it, reports]
+            'domained post at our uri' => [
+                fn (Router $r) => $r->domain($domain)->post($uri, 'H@h'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            'domained post, parameter renamed' => [
+                fn (Router $r) => $r->domain($domain)->post(self::PATH.'/{conn?}', 'H@h'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            'domained post, parameter required' => [
+                fn (Router $r) => $r->domain($domain)->post(self::PATH.'/{connection}', 'H@h'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            'domained post, bare path with no parameter' => [
+                fn (Router $r) => $r->domain($domain)->post(self::PATH, 'H@h'),
+                ['main'], true, "http://{$domain}/wlcm/webhook", 'host-unverified', true,
+            ],
+            'domained any catch-all' => [
+                fn (Router $r) => $r->domain($domain)->any('{any}', 'H@h')->where('any', '.*'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            'domained post wlcm/{rest}' => [
+                fn (Router $r) => $r->domain($domain)->post('wlcm/{rest}', 'H@h')->where('rest', '.*'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            'patterned domain, post at our uri' => [
+                fn (Router $r) => $r->domain('{tenant}.example.com')->post($uri, 'H@h'),
+                ['main'], true, 'http://t1.example.com/wlcm/webhook/main', 'host-unverified', true,
+            ],
+            'patterned domain, parameter renamed and required' => [
+                fn (Router $r) => $r->domain('{tenant}.example.com')->post(self::PATH.'/{c}', 'H@h'),
+                ['main'], true, 'http://t1.example.com/wlcm/webhook/main', 'host-unverified', true,
+            ],
+            // The prefix lands on the URI, so a probe copy must not re-apply it.
+            'domained group prefix' => [
+                fn (Router $r) => $r->domain($domain)->prefix('wlcm')->post('webhook/{connection?}', 'H@h'),
+                ['main'], true, $delivery, 'host-unverified', true,
+            ],
+            // Second configured connection: the probe set used to carry connections[0] only.
+            'literal second connection segment' => [
+                fn (Router $r) => $r->post(self::PATH.'/alt', 'H@h'),
+                ['main', 'alt'], false, 'http://localhost/wlcm/webhook/alt', 'host-unverified', true,
+            ],
+            'parameter constrained to the second connection' => [
+                fn (Router $r) => $r->post(self::PATH.'/{c}', 'H@h')->whereIn('c', ['alt']),
+                ['main', 'alt'], false, 'http://localhost/wlcm/webhook/alt', 'host-unverified', true,
+            ],
+            // Scheme lives in the action array, so an https-only route answered neither probe.
+            'https-only post at our uri' => [
+                fn (Router $r) => $r->post($uri, ['https', 'uses' => 'H@h']),
+                ['main'], true, 'https://localhost/wlcm/webhook/main', 'host-unverified', true,
+            ],
+
+            // Why the domainless pass ignores domained routes rather than walking one table:
+            // `get('POST')` returns domained routes FIRST, so a verifying domained route
+            // would stop the walk before the domainless route that really takes the endpoint
+            // on every other host.
+            'verifying domained route does not mask a domainless one' => [
+                function (Router $r) use ($uri, $domain): void {
+                    $r->post(self::PATH.'/{c}', 'H@h');
+                    $r->domain($domain)->post($uri, 'H@h')->middleware(VerifyWebhookSignature::class);
+                },
+                ['main'], false, 'http://other.example.com/wlcm/webhook/main', 'host-unverified', true,
+            ],
+
+            // --- false-alarm guards: these must stay silent.
+            'domained post that reattaches our middleware' => [
+                fn (Router $r) => $r->domain($domain)->post($uri, 'H@h')->middleware(VerifyWebhookSignature::class),
+                ['main'], true, $delivery, 'host-verified', false,
+            ],
+            // Ours is domainless, so it answers on that host too — which is the point of the row.
+            'domained post at an unrelated uri' => [
+                fn (Router $r) => $r->domain($domain)->post('billing/callback', 'H@h'),
+                ['main'], true, $delivery, 'package', false,
+            ],
+            'domained get at our uri' => [
+                fn (Router $r) => $r->domain($domain)->get($uri, 'H@h'),
+                ['main'], true, $delivery, 'package', false,
+            ],
+            'literal second connection segment, ours first' => [
+                fn (Router $r) => $r->post(self::PATH.'/alt', 'H@h'),
+                ['main', 'alt'], true, 'http://localhost/wlcm/webhook/alt', 'package', false,
+            ],
+        ];
+    }
+
+    /**
+     * @param  callable(Router): mixed  $build
+     * @param  list<string>  $connections
+     */
+    #[DataProvider('reachShapes')]
+    public function test_every_domained_and_scheme_shape(
+        callable $build,
+        array $connections,
+        bool $oursFirst,
+        string $delivery,
+        string $serves,
+        bool $reports,
+    ): void {
+        $router = $this->router();
+
+        if ($oursFirst) {
+            $this->registerOurs($router, $connections);
+            $build($router);
+        } else {
+            $build($router);
+            $this->registerOurs($router, $connections);
+        }
+
+        $this->assertSame(
+            $reports,
+            WebhookRoute::shadow($router, self::PATH, $connections) !== null,
+            $reports ? 'an unverified endpoint went unreported' : 'a safe configuration was reported as a conflict',
+        );
+
+        $this->assertSame($serves, $this->serves($router, $delivery), 'the row describes a delivery it does not produce');
+    }
+
+    /**
+     * The residual behind the whole domained branch, asserted through dispatch rather than
+     * through the private state: `Route::$compiled` is written once and nothing invalidates
+     * it — not `where()`, not `domain()`, not `prefix()` — so a watch that compiles a LIVE
+     * route freezes the regex that later binds its parameters. Any constraint the route
+     * acquires afterwards is then ignored at dispatch, and an unconstrained regex accepts
+     * what the constraint would have refused. Probing copies leaves the live table untouched.
+     */
+    public function test_probing_leaves_constraints_declared_after_it_binding(): void
+    {
+        $router = $this->router();
+        $this->registerOurs($router, [self::CONNECTION]);
+        $host = $router->domain('api.example.com')->post(self::PATH.'/{connection}', 'H@h');
+
+        WebhookRoute::shadow($router, self::PATH, [self::CONNECTION]);
+
+        $host->whereIn('connection', ['main']);
+
+        $this->assertSame(
+            'none',
+            $this->serves($router, 'http://api.example.com/wlcm/webhook/other'),
+            'a constraint declared after the watch ran was ignored at dispatch',
+        );
+    }
+
+    /** Who answers the delivery, decided by the same matcher dispatch uses. */
+    private function serves(Router $router, string $url): string
+    {
+        try {
+            $route = $router->getRoutes()->match(Request::create($url, 'POST'));
+        } catch (Throwable) {
+            return 'none';
+        }
+
+        return match (true) {
+            $route->getName() === WebhookRoute::NAME => 'package',
+            in_array(VerifyWebhookSignature::class, (array) $route->middleware(), true) => 'host-verified',
+            default => 'host-unverified',
+        };
+    }
+
+    /** @param list<string> $connections */
+    private function registerOurs(Router $router, array $connections = [self::CONNECTION]): void
     {
         $router->post(WebhookRoute::uri(self::PATH), fn (): string => 'ours')
             ->middleware(VerifyWebhookSignature::class)
             ->name(WebhookRoute::NAME)
-            ->whereIn('connection', [self::CONNECTION]);
+            ->whereIn('connection', $connections);
     }
 
     /**

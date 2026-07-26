@@ -7,6 +7,7 @@ namespace Uzbek\Wlcm\Webhooks;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use Illuminate\Support\Arr;
 
 /**
  * One definition of where the webhook route lives, and one definition of what counts as
@@ -49,13 +50,13 @@ final class WebhookRoute
     }
 
     /**
-     * The route that would actually serve a POST to our endpoint when it is NOT carrying
-     * signature verification — i.e. the one that has silently taken the endpoint and will
-     * hand merchant code an unverified body.
+     * A route that would serve a POST to our endpoint WITHOUT carrying signature
+     * verification — i.e. one that has silently taken the endpoint and will hand merchant
+     * code an unverified body.
      *
-     * ASK THE ROUTER THE QUESTION THE ROUTER ASKS. The previous version scanned
-     * `getRoutes()` for a textual URI match, and that was wrong twice over, because
-     * `RouteCollection` maintains two tables with DIFFERENT keys:
+     * ASK THE ROUTER'S OWN QUESTION. An earlier version scanned `getRoutes()` for a textual
+     * URI match, and that was wrong twice over, because `RouteCollection` maintains two
+     * tables with DIFFERENT keys:
      *
      *   $allRoutes[implode('|', $methods).$domainAndUri]   // what getRoutes() walks
      *   $routes[$method][$domainAndUri]                    // what matching walks
@@ -63,31 +64,65 @@ final class WebhookRoute
      * They disagree for any route whose method list is not exactly ['POST']. A host
      * `Route::any()` evicts ours from `routes['POST'][$uri]` — so it serves the endpoint —
      * yet lands under a different `allRoutes` key, leaving OUR route alive there as a
-     * phantom. The old scan met the phantom first, saw our middleware and returned null.
-     * Measured over eight host shapes x both registration orders: 7 silent misses
-     * (`any`, `match`, `redirect`, `permanentRedirect`, a domained post, a param wildcard)
-     * and 4 false alarms, with only 5 of 16 cells correct. `Route::redirect()` is not
-     * exotic — it is literally `any($uri, RedirectController::class)`, so a merchant
-     * redirecting a moved webhook path hit the silent case.
+     * phantom that still carried our middleware. So this walks `get('POST')`, the same
+     * table dispatch matches against, and decides capture with `Route::matches()` rather
+     * than a URI string compare, which is what catches a parameter that merely captures our
+     * path, a renamed or required parameter, and a bare path with no parameter at all.
      *
-     * So: walk `get('POST')`, which is the same table dispatch matches against — it
-     * excludes phantoms, and returns domained routes first exactly as `matchAgainstRoutes`
-     * sees them — and take the FIRST route that matches, because first match wins. Use
-     * `Route::matches()` rather than comparing URI strings, so a param wildcard that
-     * captures our path is caught too; it compiles and validates without binding, so
-     * calling it during boot has no effect on request handling.
+     * THE TABLE IS SPLIT BY DOMAIN, because the two halves answer different questions and
+     * the previous version answered only the first one for both:
+     *
+     *   - A DOMAINLESS route answers on every host, so the order these appear in is the
+     *     order dispatch tries them on any host. First capture wins; if it verifies, it is
+     *     the deliberate way to front the endpoint and nothing is reported.
+     *   - A DOMAINED route answers only on its own host, and which host WLCM delivers to is
+     *     not knowable here. So the domain is not matched at all: any domained route that
+     *     captures our path unverified is reported.
+     *
+     * That second rule OVER-REPORTS on purpose — it fires for a domained route on a host
+     * WLCM never posts to, and an `admin.example.com` catch-all cannot take the slot for
+     * deliveries addressed to `api.example.com`. This is a `report()` rather than a refusal,
+     * and a miss is the failure that matters; a false alarm is a five-second `route:list`.
+     * The previous version tried to have it both ways — it probed with `Request::create()`,
+     * whose default host is `localhost`, so `HostValidator` rejected every real domain, and
+     * fell back to comparing `$route->uri()` to ours as strings. That string compare
+     * included the PARAMETER'S NAME, so a domained `wlcm/webhook/{conn?}`, a required
+     * `{connection}`, a bare `wlcm/webhook`, a `{any}` catch-all, a `wlcm/{rest}` and any
+     * tenant-patterned domain all served unverified deliveries in silence, while the
+     * identical route WITHOUT a domain was caught. Domained routes were strictly weaker,
+     * and `RouteCollection::get($method)` returns them FIRST, so they outrank ours on their
+     * host.
      *
      * Null when nothing serves the endpoint at all. That stays silent deliberately: no
      * unverified body reaches anyone, WLCM gets 404s and fails loudly through failed
      * deliveries, so it is an availability problem with its own signal rather than a silent
      * security hole.
+     *
+     * TWO RESIDUALS, both toward noise rather than silence. A route flagged
+     * `->fallback()` is treated as any other, though dispatch tries fallbacks last — so a
+     * hand-made POST fallback registered before ours can raise a false alarm
+     * (`Route::fallback()` itself registers GET only, so it never reaches this table). And
+     * two domained routes on the SAME host are not ordered against each other: a verifying
+     * one first does not silence an unverified one behind it.
+     *
+     * @param  list<string>  $connections  Configured connection names.
      */
-    public static function shadow(Router $router, mixed $configuredPath, ?string $sampleConnection = null): ?Route
+    public static function shadow(Router $router, mixed $configuredPath, array $connections = []): ?Route
     {
-        foreach (self::probes($configuredPath, $sampleConnection) as $request) {
-            foreach ($router->getRoutes()->get('POST') as $route) {
-                // Method already decided by the table we are walking.
-                if (! $route->matches($request, false)) {
+        $routes = [];
+        $copies = [];
+
+        foreach ($router->getRoutes()->get('POST') as $route) {
+            $routes[] = $route;
+            $copies[] = self::probeCopy($route);
+        }
+
+        $probes = self::probes($configuredPath, $connections);
+
+        // Domainless: dispatch order on every host.
+        foreach ($probes as $probe) {
+            foreach ($routes as $i => $route) {
+                if ($route->getDomain() !== null || ! $copies[$i]->matches($probe, false)) {
                     continue;
                 }
 
@@ -95,24 +130,21 @@ final class WebhookRoute
                     return $route;
                 }
 
-                break; // A verifying route wins this shape; try the next.
+                break; // A verifying route wins this shape on every host; try the next.
             }
         }
 
-        // A domained route cannot be probed without knowing its host, but one sitting on
-        // our URI does serve our endpoint for that host, unverified. Reported on identity.
-        //
-        // DELIBERATE OVER-REPORT, not an oversight: this also fires for a domained route on
-        // a host WLCM never posts to — an admin.example.com route cannot take the slot for
-        // deliveries addressed to api.example.com. The host is unknowable at boot, this is a
-        // report() rather than a refusal, and erring toward noise beats staying silent about
-        // an unverified endpoint. A miss here would be the failure; a false alarm is a
-        // five-second `route:list`.
-        foreach ($router->getRoutes()->get('POST') as $route) {
-            if ($route->getDomain() !== null
-                && $route->uri() === self::uri($configuredPath)
-                && ! self::verifies($route)) {
-                return $route;
+        // Domained: host unknowable, so capture alone decides. No break — a verifying route
+        // on one host says nothing about an unverified one on another.
+        foreach ($probes as $probe) {
+            foreach ($routes as $i => $route) {
+                if ($route->getDomain() === null || ! $copies[$i]->matches($probe, false)) {
+                    continue;
+                }
+
+                if (! self::verifies($route)) {
+                    return $route;
+                }
             }
         }
 
@@ -120,21 +152,60 @@ final class WebhookRoute
     }
 
     /**
-     * Both shapes our own route answers: with the optional connection segment absent, and
-     * with it present. A host route whose parameter is REQUIRED
-     * (`wlcm/webhook/{anything}`) only captures the second, so probing one form alone
-     * misses it — which is how the param-wildcard shape stayed silent.
+     * A throwaway route carrying only what decides capture: the URI, its constraints, and
+     * the scheme restriction, which lives in the action array rather than the URI.
      *
+     * NOT the live route. `matches()` compiles, `Route::$compiled` is written once and
+     * nothing invalidates it — not `where()`, not `domain()`, not `prefix()` — so probing
+     * the live object would freeze the regex that later binds its parameters, against
+     * whatever the route looked like while the app was still booting.
+     *
+     * The domain is dropped rather than matched, per the rule above; with no host pattern
+     * `HostValidator` passes and URI plus scheme decide. `prefix` goes with it because
+     * `uri()` already carries the prefix and the constructor would apply it a second time.
+     */
+    private static function probeCopy(Route $route): Route
+    {
+        $action = Arr::except((array) $route->getAction(), ['domain', 'prefix']);
+
+        return (new Route('POST', $route->uri(), $action))->setWheres($route->wheres);
+    }
+
+    /**
+     * Both shapes our own route answers, crossed with both schemes.
+     *
+     * A host route whose parameter is REQUIRED (`wlcm/webhook/{anything}`) captures only the
+     * form that carries a connection, so probing the bare path alone misses it. The values
+     * are the configured connection names, ALL of them: our route constrains the segment to
+     * that list, so a probe carrying anything else matches nothing of ours and would report
+     * every host route standing behind it — and carrying only the first name left a host
+     * route pinned to the second one unseen. The residual is the other direction: a host
+     * route sitting on a segment that is NOT a configured connection goes unwatched, because
+     * that URI is not one we serve either.
+     *
+     * Both schemes, because `SchemeValidator` refuses an http request for an https-only
+     * route, and http alone therefore saw straight past one. The host in these URLs is
+     * inert: probe copies carry no domain, so `HostValidator` never consults it.
+     *
+     * @param  list<string>  $connections
      * @return list<Request>
      */
-    private static function probes(mixed $configuredPath, ?string $sampleConnection): array
+    private static function probes(mixed $configuredPath, array $connections): array
     {
         $path = '/'.self::path($configuredPath);
 
-        $probes = [Request::create($path, 'POST')];
+        $paths = [$path];
 
-        if ($sampleConnection !== null && $sampleConnection !== '') {
-            $probes[] = Request::create($path.'/'.$sampleConnection, 'POST');
+        foreach ($connections as $connection) {
+            $paths[] = $path.'/'.$connection;
+        }
+
+        $probes = [];
+
+        foreach (['http', 'https'] as $scheme) {
+            foreach ($paths as $candidate) {
+                $probes[] = Request::create($scheme.'://localhost'.$candidate, 'POST');
+            }
         }
 
         return $probes;

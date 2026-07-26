@@ -81,18 +81,15 @@ final class WlcmServiceProvider extends ServiceProvider
      * unverified body. Nothing announces that; route:list is the only symptom.
      *
      * Deferred to booted() because the app's own routes load from a booted callback queued
-     * by RouteServiceProvider::register(), and every register() precedes every boot(). Read
-     * the collection, never the name lookup: eviction mutates allRoutes, but
-     * refreshNameLookups() is queued in a nested booted() callback that runs after this
-     * one, so the evicted route still answers to its name here and a name-based check
-     * could not fail.
+     * by RouteServiceProvider::register(), and every register() precedes every boot().
      *
-     * The URI comes from CONFIG, not from our own registered route. Deriving it from our
-     * route made the check blind under `route:cache`: a table baked while a host route
-     * already shadowed ours holds no route of ours to read the URI from, so nothing was
-     * watched — the guard was silent in precisely the state it exists to catch. The
-     * normalisation is not duplicated to get that; WebhookRoute owns the only copy and the
-     * route file uses it too.
+     * Read the collection, never the name lookup: eviction mutates allRoutes, and an
+     * evicted route still answers to its name, so a name-based check could not fail.
+     *
+     * The URI comes from CONFIG, not from our own registered route, because a table baked
+     * while a host route already shadowed ours holds no route of ours to read the URI from.
+     * The normalisation is not duplicated to get that; WebhookRoute owns the only copy and
+     * the route file uses it too.
      */
     private function watchForRouteConflict(): void
     {
@@ -101,14 +98,16 @@ final class WlcmServiceProvider extends ServiceProvider
         $path = $config->get('wlcm.webhook.path');
         $uri = WebhookRoute::uri($path);
 
-        // One real connection name, so the probe can exercise the form of our route that
-        // carries a connection segment — the segment is whereIn-constrained to configured
-        // names, so an invented value would not match our own route.
-        $connections = array_keys((array) $config->get('wlcm.connections', []));
-        $sample = $connections === [] ? null : (string) $connections[0];
+        // Every configured connection name, because our route constrains the segment to that
+        // list: a probe carrying a name outside it matches nothing of ours. Carrying only the
+        // first left a host route pinned to any later connection unseen.
+        $connections = array_map(
+            static fn (string|int $connection): string => (string) $connection,
+            array_keys((array) $config->get('wlcm.connections', [])),
+        );
 
-        $this->app->booted(function () use ($router, $path, $sample, $uri): void {
-            if (WebhookRoute::shadow($router, $path, $sample) === null) {
+        $watch = function () use ($router, $path, $connections, $uri): void {
+            if (WebhookRoute::shadow($router, $path, $connections) === null) {
                 return;
             }
 
@@ -119,6 +118,8 @@ final class WlcmServiceProvider extends ServiceProvider
             } catch (Throwable) {
                 //
             }
-        });
+        };
+
+        $this->app->booted($watch);
     }
 }
