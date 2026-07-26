@@ -74,7 +74,24 @@ final readonly class VerifyWebhookSignature
             throw MissingConfigurationException::forKey("wlcm.connections.{$connection}.partner.webhook_secret");
         }
 
-        $expected = hash_hmac('sha256', $payload->signatureBase(), $secret);
+        // Verify over the WIRE values, not the framework's. A stock app runs TrimStrings and
+        // ConvertEmptyStringsToNull in the global stack before this middleware, so
+        // $request->all() has already been rewritten — and an hmac checked against
+        // rewritten input refuses a delivery WLCM signed correctly, which no merchant can
+        // fix without disabling TrimStrings application-wide. Only the base is rebuilt;
+        // family detection, the 422 checks and the payload handed downstream are
+        // unchanged. A body that is not a json object falls back to the parsed input,
+        // which is the pre-existing behaviour rather than a new refusal.
+        $decoded = json_decode($request->getContent(), true);
+        $signedData = is_array($decoded) ? $decoded : $requestData;
+        $signedData['signature'] = $signature;
+
+        /** @var WebhookPayloadShape&SubscriptionWebhookPayloadShape $signedData */
+        $signed = $isSubscription
+            ? SubscriptionWebhookPayload::fromArray($signedData, $connection)
+            : WebhookPayload::fromArray($signedData, $connection);
+
+        $expected = hash_hmac('sha256', $signed->signatureBase(), $secret);
 
         if (! hash_equals($expected, $payload->signature)) {
             abort(403, 'Invalid webhook signature');
