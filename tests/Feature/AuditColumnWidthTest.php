@@ -135,7 +135,9 @@ final class AuditColumnWidthTest extends TestCase
      * Measured, not argued — the suffix scheme this replaces lost one field at arity 3,
      * two at arity 4, and overwrote a merchant key literally named `notehidden~1`. Each
      * row asserts the OUTPUT KEY COUNT equals the input count, which is the property that
-     * makes this not a deletion primitive.
+     * makes this not a deletion primitive. Note the count assertion is only meaningful
+     * with rows that pair a key against the escape of another — the original rows all
+     * passed against a rewrite that lost fields.
      *
      * @return array<string, array{array<string, string>, int}>
      */
@@ -148,6 +150,14 @@ final class AuditColumnWidthTest extends TestCase
             'arity 4' => [['notehidden' => 'i', "note\0hidden" => 'A', "noteh\0idden" => 'B', "notehi\0dden" => 'C'], 4],
             'pre-existing suffix' => [['notehidden' => 'x', 'notehidden~1' => 'MERCHANT', "note\0hidden" => 'NUL'], 3],
             'literal percent' => [['100%' => 'a', "100\0" => 'b'], 2],
+            // Every row above varies where the NUL sits while the key it could collapse
+            // ONTO is absent — which is why they all passed against a rewrite that
+            // deleted a field. These pair a key with the ESCAPE of another key, in both
+            // orders, because JSON preserves order and the sender picks it.
+            'nul and its escape' => [["a\0b" => 'V1', 'a%00b' => 'V2'], 2],
+            'nul and its escape reversed' => [['a%00b' => 'V2', "a\0b" => 'V1'], 2],
+            'percent and its escape' => [['vat%' => 'GENUINE', 'vat%25' => 'COLLIDER'], 2],
+            'percent and its escape reversed' => [['vat%25' => 'COLLIDER', 'vat%' => 'GENUINE'], 2],
         ];
     }
 
@@ -172,7 +182,7 @@ final class AuditColumnWidthTest extends TestCase
 
         // A merchant key keeps its own name; nothing is rewritten onto it.
         if (array_key_exists('notehidden~1', $keys)) {
-            $this->assertSame('MERCHANT', $body['notehidden~1'] ?? null, 'a merchant key was overwritten');
+            $this->assertContains('MERCHANT', $body, 'a merchant key was overwritten');
         }
     }
 

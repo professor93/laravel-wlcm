@@ -73,21 +73,19 @@ final class Masker
      */
     public static function scrubProse(array $data): array
     {
+        // Builds a FRESH array, the way mask() does, and that is load-bearing rather than
+        // stylistic. Rewriting keys in place made the encoding a deletion primitive even
+        // though encodeKey() is injective as a function: iteration A would unset its own
+        // key and write the escaped name into a slot that iteration B then unset, so
+        // `["vat%" => "GENUINE", "vat%25" => "COLLIDER"]` came out as ONE key with
+        // GENUINE gone — no NUL, no attacker, ordinary merchant data. An injective
+        // function applied destructively over its own input is not an injective rewrite.
+        $out = [];
+
         foreach ($data as $key => $value) {
-            // Keys carry NUL too, and only values were ever rewritten. A signed delivery
-            // can add any extra key it likes — only four fields are in the base — so
-            // `note\0hidden` reached the blob and made pgsql's ::jsonb, ->> and
-            // json_each_text all raise 22P05, which is the error the strip exists to stop.
-            if (is_string($key)) {
-                $encoded = self::encodeKey($key);
+            $key = is_string($key) ? self::encodeKey($key) : $key;
 
-                if ($encoded !== $key) {
-                    unset($data[$key]);
-                    $key = $encoded;
-                }
-            }
-
-            $data[$key] = match (true) {
+            $out[$key] = match (true) {
                 is_string($value) => self::scrubPans($value),
                 is_int($value) => ($s = self::scrubPans((string) $value)) === (string) $value ? $value : $s,
                 is_array($value) => self::scrubProse($value),
@@ -95,7 +93,7 @@ final class Masker
             };
         }
 
-        return $data;
+        return $out;
     }
 
     /**
@@ -109,10 +107,12 @@ final class Masker
      * audit trail that can be made to drop a chosen field with one captured signature
      * is a deletion primitive, not a cosmetic issue.
      *
-     * Escaping the escape first is what makes this injective rather than merely
-     * unlikely to clash: distinct inputs cannot share an output, at any arity, and no
-     * rewritten key can land on an untouched one. The cost is that a key containing a
-     * literal `%` is rewritten too — visible and reversible, unlike losing it.
+     * Escaping the escape first makes the FUNCTION injective: distinct inputs cannot
+     * share an output. That is necessary and was not sufficient — applied as an in-place
+     * rewrite it still deleted fields, because an escaped name could land in a slot a
+     * later iteration removed. Injectivity only survives because scrubProse() builds a
+     * fresh array; the two belong together. The cost is that a key containing a literal
+     * `%` is rewritten too — visible and reversible, unlike losing it.
      */
     private static function encodeKey(string $key): string
     {
