@@ -247,17 +247,10 @@ final class WebhookConcurrencyTest extends TestCase
     }
 
     /**
-     * The mirror of the horizon test, on the expiry end. Truncation floors the stored
-     * stamp, so `<=` would call a claim expired up to a second early and dispatch a
-     * handler that is still running — which is why the predicate uses strict `<`. Only a
-     * claim sitting exactly ON the cutoff tells the two apart, and nothing else in the
-     * suite or the battery ever manufactures one.
-     */
-    /**
      * A claim that loses its compare-and-swap re-reads and tries again, but the retry is
-     * only worth having if a competing writer can commit in between. Without a wait all
-     * three attempts burn inside one sub-millisecond window, and the delivery 500s on a
-     * race it would have won a few milliseconds later.
+     * only worth having if a competing writer can commit in between. Without a wait every
+     * attempt burns inside one sub-millisecond window, and the delivery 500s on a race it
+     * would have won a few milliseconds later.
      */
     public function test_a_lost_compare_and_swap_waits_before_trying_again(): void
     {
@@ -295,7 +288,7 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertGreaterThanOrEqual(
             20,
             $elapsedMs,
-            'all three attempts burned inside one window — the retry never gave anyone time to commit',
+            'all five attempts burned inside one window — the retry never gave anyone time to commit',
         );
     }
 
@@ -358,6 +351,13 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertSame(WebhookOutcome::Fresh, $outcome, 'a free row was answered InFlight and the dispatch was lost');
     }
 
+    /**
+     * The mirror of the horizon test, on the expiry end. Truncation floors the stored
+     * stamp, so `<=` would call a claim expired up to a second early and dispatch a
+     * handler that is still running — which is why the predicate uses strict `<`. Only a
+     * claim sitting exactly ON the cutoff tells the two apart, and nothing else in the
+     * suite or the battery ever manufactures one.
+     */
     public function test_the_expiry_clamp_gives_a_claim_its_full_lease(): void
     {
         Carbon::setTestNow('2026-07-26 12:00:00');

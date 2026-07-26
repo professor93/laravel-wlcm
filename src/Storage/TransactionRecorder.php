@@ -90,11 +90,11 @@ final class TransactionRecorder implements TransactionStore
     }
 
     /**
-     * Jittered pause between claim attempts. Three attempts with no pause span well under
-     * a millisecond, which is shorter than the single round trip a competing claim needs
-     * to commit — so the budget was spent without anyone making progress. Two of these
-     * waits give the retry 10-50ms, one to two orders of magnitude more than that round
-     * trip. Jitter so a burst does not re-collide in lockstep.
+     * Jittered pause between claim attempts. With no pause the whole budget spans well
+     * under a millisecond, which is shorter than the single round trip a competing claim
+     * needs to commit — so it was spent without anyone making progress. Four of these
+     * waits give the retry 20-100ms, two orders of magnitude more than that round trip.
+     * Jitter so a burst does not re-collide in lockstep.
      */
     private static function backoff(int $attempt): void
     {
@@ -162,9 +162,9 @@ final class TransactionRecorder implements TransactionStore
                 }
 
                 // The row moved under us. Wait like the contended branch does: with no
-                // pause all three attempts burn inside one sub-millisecond window, the
-                // writer we are losing to never gets to commit, and a delivery 500s on a
-                // race it would have won a few milliseconds later.
+                // pause every attempt burns inside one sub-millisecond window, the writer
+                // we are losing to never gets to commit, and a delivery 500s on a race it
+                // would have won a few milliseconds later.
                 self::backoff($attempt);
             } catch (UniqueConstraintViolationException $e) {
                 // Lost an insert race. Caught BEFORE QueryException on purpose: bindings
@@ -373,10 +373,6 @@ final class TransactionRecorder implements TransactionStore
     // third copy in.
     public function releaseClaim(WebhookPayload $payload, string $token): void
     {
-        if (! $this->enabled()) {
-            return;
-        }
-
         $this->release(fn (): Builder => WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId)), $token);
@@ -490,10 +486,6 @@ final class TransactionRecorder implements TransactionStore
 
     public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void
     {
-        if (! $this->enabled()) {
-            return;
-        }
-
         $this->release(fn (): Builder => WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('delivery_key', $this->subscriptionKey($payload)), $token);
@@ -510,6 +502,13 @@ final class TransactionRecorder implements TransactionStore
     private function release(callable $query, string $token): void
     {
         try {
+            // enabled() reads a merchant-supplied toggle and can throw. It belongs inside
+            // this try for the same reason the query builder does: nothing here may
+            // replace the handler's own throwable.
+            if (! $this->enabled()) {
+                return;
+            }
+
             $query()->where('dispatch_token', $token)
                 ->whereNull('processed_at')
                 ->update(['dispatch_token' => null, 'claimed_at' => null]);
