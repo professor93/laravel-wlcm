@@ -20,9 +20,14 @@ use Illuminate\Support\Arr;
  * nothing and no watch installed. The state the guard exists to catch was the state it
  * could not see — registration-time knowledge defeated by a baked table.
  *
- * Deriving the URI from config instead fixes that, and the objection to doing so was
- * sound: it would mean a second copy of the trim-and-fallback normalisation, and two
+ * Deriving the URI from config instead removes that dependency, and the objection to doing
+ * so was sound: it would mean a second copy of the trim-and-fallback normalisation, and two
  * copies drift. So there is exactly one copy, here, and the route file calls it.
+ *
+ * That was only HALF of the route:cache problem, and this comment used to claim the whole
+ * of it. Knowing the URI is worth nothing if the watch runs before the cached table is
+ * installed — which it did, so the guard was inert under the standard production deploy.
+ * The other half is timing and it is fixed where it lives, in the provider.
  */
 final class WebhookRoute
 {

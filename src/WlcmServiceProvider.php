@@ -6,6 +6,8 @@ namespace Uzbek\Wlcm;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Foundation\Application as FoundationApplication;
+use Illuminate\Foundation\Bootstrap\BootProviders;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
@@ -80,8 +82,26 @@ final class WlcmServiceProvider extends ServiceProvider
      * takes VerifyWebhookSignature with it, leaving whatever replaced it reading an
      * unverified body. Nothing announces that; route:list is the only symptom.
      *
-     * Deferred to booted() because the app's own routes load from a booted callback queued
-     * by RouteServiceProvider::register(), and every register() precedes every boot().
+     * WATCHED FROM TWO POINTS, because neither one alone sees every table.
+     *
+     * booted() alone is too early under `route:cache` — which README calls the standard
+     * production deploy, so the guard was alive in dev and dead in production.
+     * `RouteServiceProvider::register()` queues a PROVIDER-level booted callback; with routes
+     * cached, that callback queues `require bootstrap/cache/routes-v7.php` into the
+     * APPLICATION booted queue, one level deeper and therefore later than anything a package
+     * provider can queue from its own boot(). The order is fixed and unwinnable: ours is
+     * queued first, the table installs second, and the watch walked an empty collection.
+     *
+     * `bootstrapped: BootProviders` fires after Application::boot() returns, with the cached
+     * table in place — but only when the app boots through Application::bootstrapWith(), and
+     * Orchestra Testbench calls the bootstrapper directly instead, so that event never fires
+     * there. Hence both, with the report itself taken once: whichever point first sees a
+     * shadow reports it, and neither point can make the other blind. Measured against a real
+     * baked routes-v7.php in tests/Feature/WebhookRouteCacheConflictTest.php — Laravel's own
+     * WithCachedRoutes trait installs the table synchronously and hides all of this.
+     *
+     * booted() also covers a provider registered after the app has booted: it runs the
+     * callback immediately in that case, and by then the table is installed.
      *
      * Read the collection, never the name lookup: eviction mutates allRoutes, and an
      * evicted route still answers to its name, so a name-based check could not fail.
@@ -93,6 +113,7 @@ final class WlcmServiceProvider extends ServiceProvider
      */
     private function watchForRouteConflict(): void
     {
+        $app = $this->app->make(FoundationApplication::class);
         $router = $this->app->make(Router::class);
         $config = $this->app->make(Repository::class);
         $path = $config->get('wlcm.webhook.path');
@@ -106,10 +127,16 @@ final class WlcmServiceProvider extends ServiceProvider
             array_keys((array) $config->get('wlcm.connections', [])),
         );
 
-        $watch = function () use ($router, $path, $connections, $uri): void {
-            if (WebhookRoute::shadow($router, $path, $connections) === null) {
+        // On the REPORT, not on the check: a point that saw no table has to leave the next
+        // one free to look again.
+        $reported = false;
+
+        $watch = function () use (&$reported, $router, $path, $connections, $uri): void {
+            if ($reported || WebhookRoute::shadow($router, $path, $connections) === null) {
                 return;
             }
+
+            $reported = true;
 
             // Guarded: report() runs the host's handler, and a diagnostic may never be
             // the thing that takes a request down.
@@ -120,6 +147,7 @@ final class WlcmServiceProvider extends ServiceProvider
             }
         };
 
-        $this->app->booted($watch);
+        $app->booted($watch);
+        $app->afterBootstrapping(BootProviders::class, $watch);
     }
 }
