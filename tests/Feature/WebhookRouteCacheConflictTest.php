@@ -268,6 +268,51 @@ final class WebhookRouteCacheConflictTest extends TestCase
         );
     }
 
+    /**
+     * THE TWO LATCHES ARE SEPARATE, and this is the shape that proves it has to stay that
+     * way. The watch points do not see the same table: under `route:cache` the first walks
+     * the live one and the second walks the compiled one that REPLACES it. So a watch that
+     * dies at the first point can be followed by a genuine conflict at the second, and
+     * latching the failure on `$reported` would spend the conflict report on a check that
+     * never established anything — the deployed-collision state, silent.
+     *
+     * The decoy carries the same broken requirement as the test above and lives only in the
+     * live table, so it kills the first point and is gone before the second.
+     */
+    public function test_a_watch_failure_at_one_point_does_not_suppress_a_conflict_at_the_other(): void
+    {
+        $this->bakeCachedRoutes(function (RouteCollection $routes): void {
+            $routes->add(new Route('POST', WebhookRoute::uri('wlcm/webhook'), ['uses' => 'HostController@handle']))
+                ->name('host.collision');
+        });
+
+        set_error_handler(static function (int $severity, string $message, string $file = '', int $line = 0): never {
+            throw new ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        try {
+            [$app, $reported] = $this->bootApplication(beforeBoot: function (Application $app): void {
+                $app->make(Router::class)->post('decoy/{x}', 'HostController@handle')->where('x', 'bad\\$');
+            });
+        } finally {
+            restore_error_handler();
+        }
+
+        // The premises, measured: a green here must not be reachable by the scenario
+        // failing to set itself up.
+        $this->assertTrue($app->routesAreCached(), 'premise: routes are cached');
+        $this->assertNotEmpty($reported->of(ErrorException::class), 'premise: the first watch point did not fail');
+        $this->assertNotNull(
+            $app->make(Router::class)->getRoutes()->getByName('host.collision'),
+            'premise: the compiled table holding the collision was never installed',
+        );
+
+        $this->assertNotEmpty(
+            $this->conflicts($reported),
+            'a watch failure at one point suppressed a genuine conflict found at the other',
+        );
+    }
+
     /** @param callable(RouteCollection): void $define */
     private function bakeCachedRoutes(callable $define): void
     {
