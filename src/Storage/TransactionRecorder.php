@@ -55,7 +55,7 @@ final class TransactionRecorder implements TransactionStore
         $seconds = $this->config->get('wlcm.webhook.lease_seconds', 60);
 
         if (! is_numeric($seconds) || (int) $seconds <= 0) {
-            throw MissingConfigurationException::forKey('wlcm.webhook.lease_seconds');
+            throw MissingConfigurationException::forKey('wlcm.webhook.lease_seconds', 'a positive number of seconds; there is no null disable');
         }
 
         return (int) $seconds;

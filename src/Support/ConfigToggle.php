@@ -15,7 +15,7 @@ final class ConfigToggle
         return match ($value) {
             true, '1', 1 => true,
             false, '0', 0, null, '' => false,
-            default => throw MissingConfigurationException::forKey($key),
+            default => throw MissingConfigurationException::forKey($key, 'true, false, "1", "0", null, ""'),
         };
     }
 
@@ -37,7 +37,7 @@ final class ConfigToggle
         return match ($value) {
             'database', 'file', 'log', true, '1' => true,
             false, '0', null, '' => false,
-            default => throw MissingConfigurationException::forKey('wlcm.storage.logs'),
+            default => throw MissingConfigurationException::forKey('wlcm.storage.logs', '"database", "file", "log", true, "1" to log; false, "0", null, "" to disable'),
         };
     }
 }

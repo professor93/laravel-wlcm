@@ -149,7 +149,12 @@ final class ConfigTogglesTest extends TestCase
                 (new WlcmServiceProvider(app()))->boot();
                 $this->fail('boot accepted '.var_export($value, true));
             } catch (MissingConfigurationException $e) {
-                $this->assertSame('Missing configuration: wlcm.webhook.enabled', $e->getMessage());
+                $this->assertStringStartsWith('Missing configuration: wlcm.webhook.enabled', $e->getMessage());
+                // D9 bar: the key alone bricked apps. A poisoned value baked into
+                // bootstrap/cache/config.php takes down every request AND config:clear
+                // itself, so the message has to carry the way out and the legal values.
+                $this->assertStringContainsString('accepted:', $e->getMessage());
+                $this->assertStringContainsString('bootstrap/cache/config.php', $e->getMessage());
             }
         }
     }
@@ -163,7 +168,12 @@ final class ConfigTogglesTest extends TestCase
                 app(TransactionStore::class)->applyWebhook($this->payload('7788'), 'tok');
                 $this->fail('recorder accepted '.var_export($value, true));
             } catch (MissingConfigurationException $e) {
-                $this->assertSame('Missing configuration: wlcm.storage.transactions', $e->getMessage());
+                $this->assertStringStartsWith('Missing configuration: wlcm.storage.transactions', $e->getMessage());
+                // D9 bar: the key alone bricked apps. A poisoned value baked into
+                // bootstrap/cache/config.php takes down every request AND config:clear
+                // itself, so the message has to carry the way out and the legal values.
+                $this->assertStringContainsString('accepted:', $e->getMessage());
+                $this->assertStringContainsString('bootstrap/cache/config.php', $e->getMessage());
             }
         }
     }
