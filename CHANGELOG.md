@@ -32,10 +32,11 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Malformed success responses throw instead of hydrating into zeroed DTOs; non-array split rows are dropped rather than zeroed
 - Amounts are validated end to end — non-positive, non-integer, indivisible and oversized values throw instead of shipping the wrong number
 - Webhook deliveries missing a required field, or carrying an unreadable timestamp, are rejected instead of coerced
-- A terminal payment row accepts only a subsequent cancel; other late deliveries are recorded stale instead of replayed
+- A settled payment row accepts only a subsequent cancel — every other late delivery, including a state the package does not model, is recorded stale instead of replayed
 - Concurrent identical webhook deliveries dispatched the money-path event up to once per copy (deterministically once per copy on the subscription path). A delivery is now claimed by one conditional `UPDATE` whose affected-row count is the verdict, so exactly one copy dispatches and the losers log `inflight`
 - A slow dispatch could stamp a *later* delivery's claim as processed, and that later delivery's redelivery was then answered `duplicate` — its event never fired again. Claims carry a per-attempt token and a dispatch can only stamp its own
 - A backward state transition on one `payment_id` re-dispatched a delivery still in flight; the ladder is now forward-only
+- Classification reads are pinned to the write connection: on a read/write split they could previously miss a just-committed claim on a lagging replica and either suppress the dispatch outright or 500 the delivery
 - Audit write failures are reported and swallowed so they never break a payment call
 - An unknown log driver, a bad tolerance value or a missing secret throws on use instead of silently disabling the feature
 
