@@ -36,6 +36,14 @@ final readonly class VerifyWebhookSignature
     // read as 5000 instead of 500000 — a 100x understatement on a money field — and this
     // guard had drifted back to it, leaving two rules in one delivery disagreeing about
     // whether a trailing newline exists.
+    //
+    // Do not relax this back to $ as pedantry. The sharpest consequence is not freshness
+    // but DEDUPE: subscriptionKey() hmacs the raw timestamp through the length-prefixed
+    // canonical, so "...800000" and "...800000\n" are two different delivery_keys — two
+    // rows, two claims, two dispatches — while parseTimestamp collapses them to the same
+    // instant. Freshness would say "same moment" and dedupe "different delivery", which is
+    // the duplicate-money-event shape this package spent seven reviews closing, sitting
+    // one vendor quirk away.
     private const string TIMESTAMP_SHAPE = '/^(?:\d{10}|\d{13}|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\z/';
 
     public function __construct(private Repository $config) {}

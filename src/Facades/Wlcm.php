@@ -12,6 +12,8 @@ use Uzbek\Wlcm\WlcmManager;
 /**
  * @method static \Uzbek\Wlcm\Connection connection(?string $name = null)
  * @method static \Uzbek\Wlcm\Partner\PartnerClient partner()
+ * @method static void forget(string $name)
+ * @method static void flush()
  *
  * @see WlcmManager
  */
