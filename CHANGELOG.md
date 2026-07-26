@@ -25,7 +25,7 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - A required webhook field that is present but empty is now a 422, matching a missing one
 - BREAKING: `LogStore::webhook()` takes a fourth `array $ids` argument, mirroring `out()`. `LogStore` is a documented rebinding point, so an implementation written against the three-argument signature will fatal on upgrade
 - A dispatch that throws now appends a second audit entry with `result = 'failed'`; `ok` means the claim was taken and dispatch began, so an `ok` with no successor is a worker that died mid-dispatch
-- A subscription `external_order_id` may no longer contain a colon
+- BREAKING: a subscription `external_order_id` may no longer contain a colon, and a payment `state` must be numeric. A legitimate subscription whose reference contains a colon is now refused with 422 — deliberate, and the cost of closing the cross-family signature collision in both directions
 - Partner info reads `/partners/me`; the documented `/integrations/me` has no route
 - Card OTP confirm posts to `/integrations/payment/card/confirm`
 - Fixed split amounts ship as SUM by default — the server compares fixed totals against the payment's SUM value, though the docs claim tiyin
@@ -40,7 +40,7 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - A slow dispatch could stamp a *later* delivery's claim as processed, and that later delivery's redelivery was then answered `duplicate` — its event never fired again. Claims carry a per-attempt token and a dispatch can only stamp its own
 - A backward state transition on one `payment_id` re-dispatched a delivery still in flight; the ladder is now forward-only
 - A webhook whose signature was verified over the raw body while the dispatched payload came from `$request->all()` could be forged wholesale: under a non-JSON content type those are two different documents, so a captured signature authenticated the body while the query string supplied `order_id`, `payment_id`, `amount` and `external_id`. Everything now derives from one document
-- A captured payment delivery could be replayed as a subscription with its signature unchanged, because both signature bases are bare colon joins; a colon in `event` or `external_order_id` is now refused
+- A captured payment delivery could be replayed as a subscription with its signature unchanged, because both signature bases are bare colon joins; a colon in `event` or `external_order_id` is now refused. The reverse also held — a genuine subscription signature replayed as a payment — and is closed by refusing a colon in `order_id`/`payment_id` and a non-numeric `state`
 - A negative `amount` stored as a negative money value on PostgreSQL while MySQL rejected the write; it is now a 422 on both
 - A body deeper than 64 levels is reshaped before the audit write — MySQL refuses a JSON document over 100 levels deep and the swallowed failure left a dispatched delivery with no audit row at all
 - NUL bytes are stripped from stored ids, logged values and object keys: PostgreSQL truncates a value at the first NUL and errors on JSON access to one, while MySQL stores it, so the two engines disagreed about what a delivery said

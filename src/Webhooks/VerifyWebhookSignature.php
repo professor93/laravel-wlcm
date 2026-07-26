@@ -85,6 +85,38 @@ final readonly class VerifyWebhookSignature
             }
         }
 
+        // The SAME ambiguity runs the other way, and the guard above only constrains the
+        // subscription family. A genuine subscription base `A:B:subscription.charged:ts`
+        // is byte-identical to a payment base, so it replays as a payment with its
+        // signature untouched.
+        //
+        // Two guards, because either alone is insufficient. `state` must be numeric:
+        // WebhookPayload already casts it with (int), so a non-numeric state is
+        // meaningless by construction, and that alone closes the observed replay. But
+        // where the timestamp carries colons there are readings whose third segment IS
+        // numeric — and in every one of those a colon lands in order_id or payment_id,
+        // which are WLCM-minted and never legitimately contain one. Together they close
+        // every reading enumerable from a subscription base WLCM would actually sign.
+        //
+        // NOT claimed as closing the family: a hypothetical numeric, colon-free event
+        // paired with a colon-bearing timestamp would still reconstruct. The real fix is
+        // domain separation in both bases, which is WLCM's wire format, not ours.
+        if (! $isSubscription) {
+            foreach (['order_id', 'payment_id'] as $field) {
+                $value = $data[$field] ?? null;
+
+                if (is_scalar($value) && str_contains((string) $value, ':')) {
+                    abort(422, "Invalid field: {$field}");
+                }
+            }
+
+            $state = $data['state'] ?? null;
+
+            if (is_scalar($state) && ! is_numeric((string) $state)) {
+                abort(422, 'Invalid field: state');
+            }
+        }
+
         // `amount` rides outside the signature base by WLCM's design, so one captured
         // delivery lets anyone set it freely. A negative reaches an unsignedBigInteger
         // column that mysql rejects with a 500 and postgres accepts — storing negative

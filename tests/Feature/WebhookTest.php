@@ -157,6 +157,40 @@ final class WebhookTest extends TestCase
         Event::assertDispatched(WebhookReceived::class);
     }
 
+    /**
+     * The reverse direction of the cross-family collision: a genuine SUBSCRIPTION
+     * signature over `A:B:subscription.charged:ts` is byte-identical to a PAYMENT base
+     * `{order_id}:{payment_id}:{state}:{timestamp}`, so it replays as a payment with its
+     * signature untouched. The colon guard constrains the subscription family only, so it
+     * never saw this.
+     */
+    public function test_a_subscription_delivery_cannot_be_replayed_as_a_payment(): void
+    {
+        Event::fake();
+        config(['wlcm.webhook.tolerance_seconds' => null]);
+
+        $signature = hash_hmac('sha256', 'A:B:subscription.charged:1745740800000', 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', [
+            'order_id' => 'A', 'payment_id' => 'B', 'state' => 'subscription.charged',
+            'amount' => '10.00', 'external_id' => 'ATTACKER',
+            'timestamp' => '1745740800000', 'signature' => $signature,
+        ])->assertStatus(422);
+
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    public function test_a_colon_in_a_server_minted_payment_id_is_refused(): void
+    {
+        Event::fake();
+        config(['wlcm.webhook.tolerance_seconds' => null]);
+        $data = $this->payload();
+        $data['payment_id'] = 'subscription.charged:2026-07-24 12';
+
+        $this->postJson('/wlcm/webhook', $data)->assertStatus(422);
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
     public function test_success_webhook_fires_events(): void
     {
         Event::fake();
