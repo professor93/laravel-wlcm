@@ -44,11 +44,13 @@ final readonly class WebhookController
         // because that scrub would mangle a luhn-coincident order_id or payment_id.
         $logIds = WebhookLogIds::from($raw);
 
+        $token = $this->claimToken();
+
         if ($payload instanceof SubscriptionWebhookPayload) {
-            return $this->handleSubscription($payload, $requestData, $logIds);
+            return $this->handleSubscription($payload, $requestData, $logIds, $token);
         }
 
-        $outcome = $this->transactions->applyWebhook($payload);
+        $outcome = $this->transactions->applyWebhook($payload, $token);
 
         if ($outcome !== WebhookOutcome::Fresh) {
             $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate', $logIds);
@@ -78,18 +80,25 @@ final readonly class WebhookController
             $instance->handle($payload);
         }
 
-        $this->transactions->markProcessed($payload);
+        $this->transactions->markProcessed($payload, $token);
 
         return new JsonResponse(['status' => 'ok']);
+    }
+
+    // Per-attempt claim identity. Minted here because the controller is what must hand
+    // it back on mark.
+    private function claimToken(): string
+    {
+        return bin2hex(random_bytes(16));
     }
 
     /**
      * @param  array<string, mixed>  $requestData
      * @param  array<string, string|null>  $logIds
      */
-    private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData, array $logIds): JsonResponse
+    private function handleSubscription(SubscriptionWebhookPayload $payload, array $requestData, array $logIds, string $token): JsonResponse
     {
-        $outcome = $this->transactions->claimSubscription($payload);
+        $outcome = $this->transactions->claimSubscription($payload, $token);
 
         if ($outcome !== WebhookOutcome::Fresh) {
             $this->logStore->webhook((string) $payload->connection, $requestData, 'duplicate', $logIds);
@@ -121,7 +130,7 @@ final readonly class WebhookController
             $instance->handle($payload);
         }
 
-        $this->transactions->markSubscriptionProcessed($payload);
+        $this->transactions->markSubscriptionProcessed($payload, $token);
 
         return new JsonResponse(['status' => 'ok']);
     }

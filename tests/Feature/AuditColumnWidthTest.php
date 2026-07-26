@@ -100,6 +100,17 @@ final class AuditColumnWidthTest extends TestCase
             }
         }
 
+        // Columns deliberately left unfitted, with the reason. Declared here rather than
+        // silently absent, so forgetting a NEW narrow column still fails this test.
+        // dispatch_token: package-minted and fixed width — a cut token would silently
+        // fail to match on release and strand the claim until the lease expires.
+        $unfitted = ['dispatch_token'];
+
+        foreach ($unfitted as $column) {
+            $this->assertArrayHasKey($column, $declared, "{$column} is excused from ColumnFit but no longer exists");
+            unset($declared[$column]);
+        }
+
         $widths = (new ReflectionClass(ColumnFit::class))->getConstant('WIDTHS');
         $this->assertIsArray($widths);
         ksort($declared);
@@ -186,16 +197,16 @@ final class AuditColumnWidthTest extends TestCase
         ], 'main');
 
         $recorder = app(TransactionStore::class);
-        $this->assertSame(WebhookOutcome::Fresh, $recorder->applyWebhook($payload));
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->applyWebhook($payload, 'tok'));
 
         $row = WlcmTransaction::sole();
         $this->assertSame(str_pad('WH-', 99, 'Z').'~', $row->external_id);
         $this->assertSame(str_pad('PAY-', 63, 'Z').'~', $row->payment_id);
 
         // A cut key still has to find its own row back, or nothing is ever marked done.
-        $recorder->markProcessed($payload);
+        $recorder->markProcessed($payload, 'tok');
         $this->assertNotNull(WlcmTransaction::sole()->processed_at);
-        $this->assertSame(WebhookOutcome::Duplicate, $recorder->applyWebhook($payload));
+        $this->assertSame(WebhookOutcome::Duplicate, $recorder->applyWebhook($payload, 'tok'));
 
         (new DatabaseLogStore)->webhook('main', [
             'external_id' => $externalId, 'order_id' => str_pad('ORD-', 80, 'Z'), 'payment_id' => $paymentId,
@@ -213,11 +224,11 @@ final class AuditColumnWidthTest extends TestCase
         ], 'main');
 
         $recorder = app(TransactionStore::class);
-        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($payload));
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($payload, 'tok'));
         $this->assertSame(str_pad('SUB-', 99, 'Q').'~', WlcmTransaction::sole()->external_id);
 
-        $recorder->markSubscriptionProcessed($payload);
-        $this->assertSame(WebhookOutcome::Duplicate, $recorder->claimSubscription($payload));
+        $recorder->markSubscriptionProcessed($payload, 'tok');
+        $this->assertSame(WebhookOutcome::Duplicate, $recorder->claimSubscription($payload, 'tok'));
         $this->assertSame(1, WlcmTransaction::query()->count());
     }
 }

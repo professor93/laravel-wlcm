@@ -27,6 +27,8 @@ final class ColumnFit
         'provider' => 32,
         'state_text' => 32,
         'delivery_key' => 160,
+        // dispatch_token is package-minted and fixed width: a cut token would silently
+        // fail to match on release, stranding the claim until the lease expires.
     ];
 
     // Cut value sits exactly on the width and ends here: truncation is readable, not silent.

@@ -66,7 +66,7 @@ final class ServerIdFidelityTest extends TestCase
                 'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => $paymentId,
                 'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
                 'timestamp' => '2026-07-24 12:00:00',
-            ], 'main'));
+            ], 'main'), 'tok-'.$paymentId);
 
             $this->assertSame(WebhookOutcome::Fresh, $outcome);
         }

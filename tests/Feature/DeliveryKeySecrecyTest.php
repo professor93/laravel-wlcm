@@ -61,7 +61,7 @@ final class DeliveryKeySecrecyTest extends TestCase
 
     public function test_the_stored_key_does_not_surrender_the_pan_to_a_brute_force(): void
     {
-        $this->recorder()->claimSubscription($this->payload());
+        $this->recorder()->claimSubscription($this->payload(), 'tok');
 
         $stored = WlcmTransaction::sole()->delivery_key;
         $this->assertIsString($stored);
@@ -86,8 +86,8 @@ final class DeliveryKeySecrecyTest extends TestCase
     public function test_the_key_is_bound_to_the_connection_secret(): void
     {
         $recorder = $this->recorder();
-        $recorder->claimSubscription($this->payload('main'));
-        $recorder->claimSubscription($this->payload('other'));
+        $recorder->claimSubscription($this->payload('main'), 'tok');
+        $recorder->claimSubscription($this->payload('other'), 'tok');
 
         $keys = WlcmTransaction::query()->orderBy('id')->pluck('delivery_key')->all();
         $this->assertCount(2, $keys);
@@ -98,15 +98,15 @@ final class DeliveryKeySecrecyTest extends TestCase
     {
         $recorder = $this->recorder();
 
-        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($this->payload()));
-        $recorder->markSubscriptionProcessed($this->payload());
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($this->payload(), 'tok'));
+        $recorder->markSubscriptionProcessed($this->payload(), 'tok');
         $this->assertNotNull(WlcmTransaction::sole()->processed_at);
 
-        $this->assertSame(WebhookOutcome::Duplicate, $recorder->claimSubscription($this->payload()));
+        $this->assertSame(WebhookOutcome::Duplicate, $recorder->claimSubscription($this->payload(), 'tok'));
         $this->assertSame(1, WlcmTransaction::query()->count());
 
         // A different delivery is still a different row.
-        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($this->payload(reference: 'sub-other')));
+        $this->assertSame(WebhookOutcome::Fresh, $recorder->claimSubscription($this->payload(reference: 'sub-other'), 'tok'));
         $this->assertSame(2, WlcmTransaction::query()->count());
     }
 }

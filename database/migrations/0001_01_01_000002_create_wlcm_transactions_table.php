@@ -23,6 +23,13 @@ return new class extends Migration
             $table->integer('state')->nullable();
             $table->string('state_text', 32)->nullable();
             $table->json('meta')->nullable();
+            // Per-attempt claim identity. Random on every claim, so an UPDATE that
+            // matches always CHANGES — mysql counts changed rows, and a 0 here reads
+            // as "someone else owns the dispatch", i.e. an event that never fires.
+            $table->string('dispatch_token', 64)->nullable();
+            // Only a hard-killed worker relies on this: a handler that throws releases
+            // the claim on the spot.
+            $table->timestamp('claimed_at')->nullable();
             $table->timestamp('processed_at')->nullable();
             $table->string('delivery_key', 160)->nullable();
             $table->timestamps();

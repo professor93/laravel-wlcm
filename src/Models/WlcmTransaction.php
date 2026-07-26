@@ -15,6 +15,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $payment_id
  * @property string|null $transaction_id
  * @property string|null $delivery_key
+ * @property string|null $dispatch_token
+ * @property Carbon|null $claimed_at
  * @property int $amount_tiyin
  * @property int|null $state
  * @property Carbon|null $processed_at
@@ -32,6 +34,7 @@ final class WlcmTransaction extends Model
         'meta' => 'array',
         'amount_tiyin' => 'integer',
         'state' => 'integer',
+        'claimed_at' => 'datetime',
         'processed_at' => 'datetime',
     ];
 

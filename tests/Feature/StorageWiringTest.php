@@ -484,26 +484,26 @@ final class StorageWiringTest extends TestCase
             /** @var list<string> */
             public array $calls = [];
 
-            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'applyWebhook';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markProcessed(WebhookPayload $payload): void
+            public function markProcessed(WebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markProcessed';
             }
 
-            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'claimSubscription';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markSubscriptionProcessed';
             }
@@ -528,26 +528,26 @@ final class StorageWiringTest extends TestCase
             /** @var list<string> */
             public array $calls = [];
 
-            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'applyWebhook';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markProcessed(WebhookPayload $payload): void
+            public function markProcessed(WebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markProcessed';
             }
 
-            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'claimSubscription';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markSubscriptionProcessed';
             }

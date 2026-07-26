@@ -7,6 +7,7 @@ namespace Uzbek\Wlcm\Storage;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 use Uzbek\Wlcm\Enums\PaymentState;
@@ -60,13 +61,13 @@ final class TransactionRecorder implements TransactionStore
 
     // Claim-then-dispatch: Fresh rows keep processed_at null until controller
     // finishes events+handler, so crash mid-dispatch reprocesses on redelivery.
-    public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+    public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
     {
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
 
-        return DB::transaction(function () use ($payload): WebhookOutcome {
+        return DB::transaction(function () use ($payload, $token): WebhookOutcome {
             $row = WlcmTransaction::query()
                 ->where('connection', ColumnFit::value('connection', $payload->connection))
                 ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
@@ -74,7 +75,15 @@ final class TransactionRecorder implements TransactionStore
                 ->first();
 
             if ($row !== null && $row->state === $payload->state) {
-                return $row->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
+                if ($row->processed_at !== null) {
+                    return WebhookOutcome::Duplicate;
+                }
+
+                // Retaking the claim gives this dispatch its own identity, so the stamp
+                // it lands later can only ever hit its own row.
+                $row->update(self::claimColumns($token, now()));
+
+                return WebhookOutcome::Fresh;
             }
 
             // Terminal rows accept only post-success cancel (-2); rest is stale replay.
@@ -93,7 +102,7 @@ final class TransactionRecorder implements TransactionStore
                 'provider' => self::scrubbed($payload->provider),
                 'state' => $payload->state,
                 'state_text' => $payload->stateEnum()?->name,
-                'processed_at' => null,
+                ...self::claimColumns($token, now()),
             ]);
 
             if ($row !== null) {
@@ -123,7 +132,7 @@ final class TransactionRecorder implements TransactionStore
         });
     }
 
-    public function markProcessed(WebhookPayload $payload): void
+    public function markProcessed(WebhookPayload $payload, string $token): void
     {
         if (! $this->enabled()) {
             return;
@@ -132,10 +141,13 @@ final class TransactionRecorder implements TransactionStore
         WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
-            ->update(['processed_at' => now()]);
+            // Own claim only. A later transition may already hold this row, and stamping
+            // ITS claim processed swallows that delivery's redelivery for good.
+            ->where('dispatch_token', $token)
+            ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
     }
 
-    public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+    public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
     {
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
@@ -152,6 +164,7 @@ final class TransactionRecorder implements TransactionStore
                 // Keyed hmac over the raw values: unforgeable without the secret, and
                 // scrubbing the preimage would only collide keys without hiding anything.
                 'delivery_key' => $key,
+                ...self::claimColumns($token, now()),
             ]));
 
             return WebhookOutcome::Fresh;
@@ -166,11 +179,17 @@ final class TransactionRecorder implements TransactionStore
                 throw $e;
             }
 
-            return $existing->processed_at === null ? WebhookOutcome::Fresh : WebhookOutcome::Duplicate;
+            if ($existing->processed_at !== null) {
+                return WebhookOutcome::Duplicate;
+            }
+
+            $existing->update(self::claimColumns($token, now()));
+
+            return WebhookOutcome::Fresh;
         }
     }
 
-    public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+    public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
     {
         if (! $this->enabled()) {
             return;
@@ -179,7 +198,8 @@ final class TransactionRecorder implements TransactionStore
         WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('delivery_key', $this->subscriptionKey($payload))
-            ->update(['processed_at' => now()]);
+            ->where('dispatch_token', $token)
+            ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
     }
 
     // Keyed, not bare. Event and timestamp sit readable in the same delivery and the
@@ -218,5 +238,17 @@ final class TransactionRecorder implements TransactionStore
     private static function scrubbed(?string $value): ?string
     {
         return $value === null ? null : Masker::scrubPans($value);
+    }
+
+    /**
+     * The random token is what guarantees a matched row is a CHANGED row. Mysql counts
+     * changed rows, and a 0 reads as "someone else owns the dispatch" — an event that
+     * never fires. Never make this deterministic, boolean, or derived from a request id.
+     *
+     * @return array<string, mixed>
+     */
+    private static function claimColumns(string $token, Carbon $now): array
+    {
+        return ['dispatch_token' => $token, 'claimed_at' => $now, 'processed_at' => null];
     }
 }

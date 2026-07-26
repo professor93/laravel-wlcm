@@ -160,7 +160,7 @@ final class ConfigTogglesTest extends TestCase
             config()->set('wlcm.storage.transactions', $value);
 
             try {
-                app(TransactionStore::class)->applyWebhook($this->payload('7788'));
+                app(TransactionStore::class)->applyWebhook($this->payload('7788'), 'tok');
                 $this->fail('recorder accepted '.var_export($value, true));
             } catch (MissingConfigurationException $e) {
                 $this->assertSame('Missing configuration: wlcm.storage.transactions', $e->getMessage());
@@ -172,7 +172,7 @@ final class ConfigTogglesTest extends TestCase
     {
         foreach (self::ON as $index => $value) {
             config()->set('wlcm.storage.transactions', $value);
-            app(TransactionStore::class)->applyWebhook($this->payload("77{$index}"));
+            app(TransactionStore::class)->applyWebhook($this->payload("77{$index}"), 'tok');
         }
 
         $this->assertSame(count(self::ON), WlcmTransaction::query()->count());
@@ -185,7 +185,7 @@ final class ConfigTogglesTest extends TestCase
 
             $this->assertSame(
                 WebhookOutcome::Fresh,
-                app(TransactionStore::class)->applyWebhook($this->payload("77{$index}")),
+                app(TransactionStore::class)->applyWebhook($this->payload("77{$index}"), 'tok'),
             );
         }
 
