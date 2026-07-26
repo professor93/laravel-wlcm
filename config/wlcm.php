@@ -27,6 +27,13 @@ return [
         ],
     ],
 
+    // Refuse to claim a webhook delivery, or to create a checkout, while the caller holds
+    // an open database transaction. Both write a wlcm_transactions row that rolls back
+    // with the caller while the payment and the events it triggered cannot. true accepts
+    // that risk and restores the old behaviour. Only consulted when
+    // storage.transactions is on — with no row to lose there is nothing to guard.
+    'allow_caller_transaction' => false,
+
     'webhook' => [
         'enabled' => true,
         'path' => 'wlcm/webhook',

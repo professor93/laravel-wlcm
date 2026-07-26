@@ -13,10 +13,12 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Throwable;
 use Uzbek\Wlcm\Enums\PaymentState;
+use Uzbek\Wlcm\Exceptions\CallerTransactionException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Exceptions\WebhookClaimException;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Support\CallerTransaction;
 use Uzbek\Wlcm\Support\ConfigToggle;
 use Uzbek\Wlcm\Support\ConnectionConfig;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
@@ -109,6 +111,21 @@ final class TransactionRecorder implements TransactionStore
         return (new ConcurrencyErrorDetector)->causedByConcurrencyError($e);
     }
 
+    /**
+     * At claim time, before any row is touched and before any event can fire.
+     *
+     * A caller-opened transaction takes the claim with it when it rolls back — but the
+     * events the claim guards dispatch in process and cannot be rolled back. So the
+     * delivery fired the money event, left no record that it did, and the next
+     * redelivery read a clean slate and fired it again.
+     */
+    private function refuseCallerTransaction(): void
+    {
+        if (CallerTransaction::open($this->config)) {
+            throw CallerTransactionException::webhookClaim();
+        }
+    }
+
     /** @param array<string, mixed> $requestPayload */
     public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
     {
@@ -148,6 +165,8 @@ final class TransactionRecorder implements TransactionStore
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
+
+        $this->refuseCallerTransaction();
 
         $lease = $this->leaseSeconds();
         $connection = ColumnFit::value('connection', $payload->connection);
@@ -383,6 +402,8 @@ final class TransactionRecorder implements TransactionStore
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
+
+        $this->refuseCallerTransaction();
 
         $lease = $this->leaseSeconds();
         $key = $this->subscriptionKey($payload);

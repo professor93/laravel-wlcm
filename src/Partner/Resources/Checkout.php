@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Resources;
 
+use Illuminate\Contracts\Config\Repository;
 use Uzbek\Wlcm\Enums\PaymentProvider;
+use Uzbek\Wlcm\Exceptions\CallerTransactionException;
 use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
+use Uzbek\Wlcm\Support\CallerTransaction;
 
 /**
  * @phpstan-import-type CheckoutResponseShape from CheckoutResponse
@@ -38,6 +41,14 @@ final readonly class Checkout
         ], fn (mixed $v): bool => $v !== null);
 
         ksort($payload);
+
+        // BEFORE the post, not beside the row it protects. recordCheckout runs below,
+        // AFTER the call has already created a real payment at WLCM — refusing there
+        // would add a throw to a payment we had just failed to record, which is strictly
+        // worse than doing nothing at all.
+        if (CallerTransaction::open(app(Repository::class))) {
+            throw CallerTransactionException::checkout();
+        }
 
         $checkoutResult = $this->client->post('/integrations/checkout', $payload);
         /** @var CheckoutResponseShape $checkoutResult */
