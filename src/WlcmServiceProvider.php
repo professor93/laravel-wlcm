@@ -22,7 +22,12 @@ final class WlcmServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/wlcm.php', 'wlcm');
 
-        $this->app->singleton(LogStore::class, function (Application $app): LogStore {
+        // singletonIf, not singleton, on all three. A host that binds a store BEFORE
+        // providers register — which is exactly what
+        // `Application::configure()->withSingletons([...])` does — was silently
+        // overwritten here, so its audit sink never received anything and nothing said
+        // so. Binding after us already worked; this makes the order stop mattering.
+        $this->app->singletonIf(LogStore::class, function (Application $app): LogStore {
             // Singleton: driver fixed at first resolve; on/off toggle stays live.
             return match ($app->make(Repository::class)->get('wlcm.storage.logs', false)) {
                 'file' => $app->make(FileLogStore::class),
@@ -32,9 +37,9 @@ final class WlcmServiceProvider extends ServiceProvider
             };
         });
 
-        $this->app->singleton(TransactionStore::class, TransactionRecorder::class);
+        $this->app->singletonIf(TransactionStore::class, TransactionRecorder::class);
 
-        $this->app->singleton(
+        $this->app->singletonIf(
             WlcmManager::class,
             fn (Application $app): WlcmManager => new WlcmManager(
                 $app->make(Repository::class),
