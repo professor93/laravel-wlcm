@@ -282,6 +282,8 @@ final class TransactionRecorder implements TransactionStore
             : self::rung($to) > self::rung($from);
     }
 
+    // The -1 default means "no rung", not CancelledDuringInit — that state is a real
+    // value of -1 but matches its own arm above and lands on rung 2.
     private static function rung(?int $state): int
     {
         return match ($state) {

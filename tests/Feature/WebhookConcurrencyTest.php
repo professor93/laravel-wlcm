@@ -243,6 +243,29 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
     }
 
+    /**
+     * The mirror of the horizon test, on the expiry end. Truncation floors the stored
+     * stamp, so `<=` would call a claim expired up to a second early and dispatch a
+     * handler that is still running — which is why the predicate uses strict `<`. Only a
+     * claim sitting exactly ON the cutoff tells the two apart, and nothing else in the
+     * suite or the battery ever manufactures one.
+     */
+    public function test_the_expiry_clamp_gives_a_claim_its_full_lease(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        config(['wlcm.webhook.lease_seconds' => 60]);
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Exactly one lease old: the lease has been reached, not exceeded. Still live.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->subSeconds(60)]);
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+
+        // Past it: recoverable.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->subSeconds(61)]);
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
     public function test_a_future_dated_claim_is_dead_not_maximally_fresh(): void
     {
         $store = app(TransactionStore::class);
