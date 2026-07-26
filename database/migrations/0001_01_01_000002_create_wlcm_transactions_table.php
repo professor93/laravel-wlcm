@@ -34,8 +34,14 @@ return new class extends Migration
             $table->string('delivery_key', 160)->nullable();
             $table->timestamps();
 
-            $table->unique(['connection', 'payment_id']);
-            $table->unique(['connection', 'delivery_key']);
+            // Named, not derived. Laravel would build
+            // `{prefix}wlcm_transactions_connection_delivery_key_unique` — 48 characters
+            // before any prefix — and MySQL caps an identifier at 64, so a 17-character
+            // DB_PREFIX made `php artisan migrate` fail outright with error 1059 and a
+            // tenant-prefixed host simply could not install the audit tables. Postgres
+            // truncated at 63 instead, which is worse: two long prefixes could collide.
+            $table->unique(['connection', 'payment_id'], 'wlcm_tx_conn_payment_unique');
+            $table->unique(['connection', 'delivery_key'], 'wlcm_tx_conn_delivery_unique');
         });
     }
 
