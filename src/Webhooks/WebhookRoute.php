@@ -205,8 +205,15 @@ final class WebhookRoute
 
         $paths = [$path];
 
+        // rawurlencode is REQUIRED, not cosmetic — do not simplify it away. `Request::create()`
+        // refuses a URI whose segment starts or ends with a space or holds a TAB/CR/LF, and
+        // that throw comes out of the watch and takes the boot with it; the route compiles with
+        // such a name perfectly well, so the brick would be ours alone. Encoding also makes a
+        // non-ASCII name probeable at all, which it was not: `UriValidator` rawurldecodes
+        // before matching, so encode-in/decode-out is identity for the matcher, and it is what
+        // a real client sends — a raw space or CR/LF cannot appear in a request line.
         foreach ($connections as $connection) {
-            $paths[] = $path.'/'.$connection;
+            $paths[] = $path.'/'.rawurlencode($connection);
         }
 
         $probes = [];

@@ -335,6 +335,48 @@ final class WebhookRouteTest extends TestCase
         );
     }
 
+    /**
+     * @return array<string, array{string}>
+     *
+     * Connection names the probe set has to survive AND reach the matcher with. Widening the
+     * probe set from `connections[0]` to every configured name made every name reachable —
+     * and reachability turned two of these from inert into fatal: `Request::create()` refuses
+     * a URI whose segment starts or ends with a space, or contains TAB/CR/LF, and that throw
+     * came straight out of the watch and took the boot with it. The route itself compiles
+     * fine with those names, so the brick was the watch's alone.
+     *
+     * The unicode row is the other direction: it never threw, it simply never matched, so the
+     * endpoint of a non-ASCII connection could be shadowed without a word.
+     */
+    public static function connectionNames(): array
+    {
+        return [
+            'plain' => ['main'],
+            'dotted' => ['my.conn'],
+            'inner space' => ['a b'],
+            'single space' => [' '],
+            'tab' => ["\t"],
+            'non-ascii' => ['асосий'],
+        ];
+    }
+
+    /**
+     * A host route constrained to THIS connection alone, so the row can only pass if the probe
+     * carrying that name was built and reached the matcher.
+     */
+    #[DataProvider('connectionNames')]
+    public function test_every_configured_connection_name_is_probed(string $connection): void
+    {
+        $router = $this->router();
+        $router->post(self::PATH.'/{c}', 'H@h')->whereIn('c', [preg_quote($connection, '/')]);
+        $this->registerOurs($router, [$connection]);
+
+        $this->assertNotNull(
+            WebhookRoute::shadow($router, self::PATH, [$connection]),
+            'the probe for this connection never reached the matcher',
+        );
+    }
+
     /** Who answers the delivery, decided by the same matcher dispatch uses. */
     private function serves(Router $router, string $url): string
     {
