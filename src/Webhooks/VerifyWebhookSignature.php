@@ -14,6 +14,7 @@ use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
 use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Support\ConfigToggle;
 use Uzbek\Wlcm\Support\ConnectionConfig;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -36,6 +37,17 @@ final readonly class VerifyWebhookSignature
     /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
+        // Per request, not only at boot. The provider skips loadRoutesFrom when the toggle
+        // is off, but `php artisan route:cache` bakes the table while it is ON and boot
+        // never runs that check again: the served process reported `enabled: false` and
+        // went on accepting signed deliveries, events and all, until someone ran
+        // route:clear. A security toggle a routine deploy step can silently disarm is not
+        // a toggle. 404 because a disabled endpoint does not exist, which is what an
+        // unrouted path already answers.
+        if (! ConfigToggle::enabled($this->config->get('wlcm.webhook.enabled', true), 'wlcm.webhook.enabled')) {
+            abort(404);
+        }
+
         // ONE document. The signature base, every guard, the freshness check, the payload
         // dispatched and the blob logged all derive from these same bytes. Verifying one
         // document and acting on another is an authentication bypass, and splitting them
