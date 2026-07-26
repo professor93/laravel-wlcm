@@ -236,7 +236,7 @@ final readonly class VerifyWebhookSignature
 
         if ($tolerance !== null) {
             if (! is_numeric($tolerance) || (int) $tolerance <= 0) {
-                throw MissingConfigurationException::forKey('wlcm.webhook.tolerance_seconds', 'a positive number of seconds, or null to disable the freshness check');
+                throw MissingConfigurationException::forKey('wlcm.webhook.tolerance_seconds', 'a positive number of seconds, or null to disable the freshness check', $tolerance);
             }
 
             $deliveredAt = self::parseTimestamp($payload->timestamp);

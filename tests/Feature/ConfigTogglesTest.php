@@ -150,11 +150,14 @@ final class ConfigTogglesTest extends TestCase
                 $this->fail('boot accepted '.var_export($value, true));
             } catch (MissingConfigurationException $e) {
                 $this->assertStringStartsWith('Missing configuration: wlcm.webhook.enabled', $e->getMessage());
-                // D9 bar: the key alone bricked apps. A poisoned value baked into
-                // bootstrap/cache/config.php takes down every request AND config:clear
-                // itself, so the message has to carry the way out and the legal values.
+                // D9 bar: the key alone bricked apps. This one IS read during boot, so a
+                // poisoned value baked into bootstrap/cache/config.php takes down every
+                // request AND config:clear itself — the message must carry the way out,
+                // the legal values, and the offending value.
                 $this->assertStringContainsString('accepted:', $e->getMessage());
                 $this->assertStringContainsString('bootstrap/cache/config.php', $e->getMessage());
+                $this->assertStringContainsString('config:cache', $e->getMessage());
+                $this->assertMatchesRegularExpression('/ is /', $e->getMessage());
             }
         }
     }
@@ -169,11 +172,13 @@ final class ConfigTogglesTest extends TestCase
                 $this->fail('recorder accepted '.var_export($value, true));
             } catch (MissingConfigurationException $e) {
                 $this->assertStringStartsWith('Missing configuration: wlcm.storage.transactions', $e->getMessage());
-                // D9 bar: the key alone bricked apps. A poisoned value baked into
-                // bootstrap/cache/config.php takes down every request AND config:clear
-                // itself, so the message has to carry the way out and the legal values.
                 $this->assertStringContainsString('accepted:', $e->getMessage());
-                $this->assertStringContainsString('bootstrap/cache/config.php', $e->getMessage());
+                $this->assertMatchesRegularExpression('/ is /', $e->getMessage());
+                // And the brick-recovery runbook must NOT be here. This key is read
+                // lazily, at call time — `config:clear` works perfectly well for it, so
+                // the advice would simply be false, and printing it on every message
+                // diluted the one key where it is true.
+                $this->assertStringNotContainsString('bootstrap/cache/config.php', $e->getMessage());
             }
         }
     }
