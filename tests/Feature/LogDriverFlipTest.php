@@ -5,11 +5,17 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Throwable;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
+use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Storage\DatabaseLogStore;
+use Uzbek\Wlcm\Storage\FileLogStore;
+use Uzbek\Wlcm\Storage\LogChannelLogStore;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Tests\TestCase;
 
@@ -91,20 +97,89 @@ final class LogDriverFlipTest extends TestCase
         $this->assertSame(0, WlcmLog::query()->count(), 'a disabled sink still wrote');
     }
 
-    // A typo'd driver must fail loudly at write time too, not silently discard. It
-    // already throws at resolve; a value edited afterwards used to just stop writing.
-    public function test_an_unreadable_driver_throws_instead_of_discarding(): void
+    /**
+     * INVERTED DELIBERATELY. An earlier version of this test asserted that a driver value
+     * poisoned at runtime THROWS from the write path. That was wrong, and wrong in the
+     * most expensive direction: `enabled()` is consulted before the store's try/catch, so
+     * the throw escaped into the caller — destroying a `checkout()` whose HTTP round trip
+     * to WLCM had already SUCCEEDED. The merchant then cannot tell "payment failed" from
+     * "payment succeeded, audit config broken", which is the one distinction that matters.
+     *
+     * It also contradicted the stores' own stated invariant: audit writes never break a
+     * payment call.
+     *
+     * Failing closed still happens where it is safe — the provider refuses to resolve an
+     * unreadable driver at all, so a typo present at boot is loud. This covers only the
+     * post-resolution case: report it, drop the entry, let the payment stand.
+     */
+    public function test_a_driver_poisoned_after_resolution_reports_and_lets_the_payment_stand(): void
     {
+        Exceptions::fake();
         app(LogStore::class);
+        config(['wlcm.storage.logs' => 'databse']);
+
+        $response = null;
+
+        try {
+            $response = $this->checkoutResponse();
+        } catch (Throwable $e) {
+            $this->fail('a poisoned audit config destroyed a completed payment call: '.$e::class);
+        }
+
+        $this->assertSame(410, $response->orderId, 'the payment result was lost');
+        $this->assertSame(0, WlcmLog::query()->count(), 'a poisoned driver still wrote');
+        Exceptions::assertReported(MissingConfigurationException::class);
+    }
+
+    /**
+     * @return array<string, array{class-string<LogStore>}>
+     *
+     * All three drivers, because the test above only ever instantiates the one that was
+     * configured at resolve time — reverting the guard in `FileLogStore` or
+     * `LogChannelLogStore` failed nothing until this existed. Measured, not assumed.
+     */
+    public static function everyDriver(): array
+    {
+        return [
+            'database' => [DatabaseLogStore::class],
+            'file' => [FileLogStore::class],
+            'log channel' => [LogChannelLogStore::class],
+        ];
+    }
+
+    /** @param class-string<LogStore> $driver */
+    #[DataProvider('everyDriver')]
+    public function test_no_driver_throws_out_of_a_write_on_a_poisoned_config(string $driver): void
+    {
+        Exceptions::fake();
+        config(['wlcm.storage.logs' => 'databse']);
+
+        $store = new $driver;
+
+        $store->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+        $store->webhook('main', ['order_id' => '1'], 'ok');
+
+        $this->assertSame(0, WlcmLog::query()->count());
+        Exceptions::assertReported(MissingConfigurationException::class);
+    }
+
+    // Boot-time is still fail-closed: the provider will not resolve an unreadable driver.
+    public function test_an_unreadable_driver_still_refuses_to_resolve(): void
+    {
         config(['wlcm.storage.logs' => 'databse']);
 
         $this->expectException(MissingConfigurationException::class);
         $this->expectExceptionMessage('wlcm.storage.logs');
 
-        $this->checkout();
+        app(LogStore::class);
     }
 
     private function checkout(): void
+    {
+        $this->checkoutResponse();
+    }
+
+    private function checkoutResponse(): CheckoutResponse
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
             'order_id' => 410, 'external_id' => 't-1', 'state' => 1,
@@ -112,6 +187,6 @@ final class LogDriverFlipTest extends TestCase
             'transaction_id' => null, 'otp_sent_phone' => null, 'cid' => null,
         ], 200)]);
 
-        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 't-1');
+        return Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 't-1');
     }
 }

@@ -122,6 +122,24 @@ final class DatabaseLogStore implements LogStore
 
     private function enabled(): bool
     {
-        return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
+        // Never throws to the caller. A driver value poisoned AFTER resolution used to
+        // escape here, ahead of the write's own try/catch, and destroy a payment call
+        // whose HTTP round trip to WLCM had already succeeded — leaving the merchant
+        // unable to tell a failed payment from a broken audit config. Fail-closed still
+        // applies where it is safe: the provider refuses to RESOLVE an unreadable driver,
+        // so a typo present at boot is loud. Past that point, report and drop.
+        try {
+            return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
+        } catch (Throwable $e) {
+            // report() itself can throw when the app's log channel is down, and nothing
+            // here may reach the caller.
+            try {
+                report($e);
+            } catch (Throwable) {
+                //
+            }
+
+            return false;
+        }
     }
 }
