@@ -50,19 +50,27 @@ final readonly class VerifyWebhookSignature
         // A payment base {order_id}:{payment_id}:{state}:{timestamp} and a subscription
         // base {external_order_id}:{event}:{timestamp} are both bare colon joins, so a
         // captured payment delivery can replay as a subscription with its signature
-        // UNCHANGED. For a collision `X:E` must equal `O:P:S`, so X is a prefix of O:P:S
-        // ending on a colon boundary: either X carries a colon, or X is exactly O and E is
-        // `P:S` and carries one. Refusing a colon in EITHER field closes every split,
-        // whatever the timestamp looks like — a numeric-only rule missed `E = "P:S"`, and
-        // a rule keyed on `subscription.` naming would refuse a legitimate event kind we
-        // have not seen yet. The cost is that a merchant reference may not contain a colon.
+        // UNCHANGED.
+        //
+        // Completeness: for a collision `X:E` must equal `O:P:S`, so X is a prefix of
+        // O:P:S ending on a colon boundary. Either X carries a colon, or X is exactly O,
+        // in which case E is `P:S` and carries one. Refusing a colon in EITHER field
+        // closes every split — and unlike a rule about the event alone it holds whatever
+        // the timestamp looks like. `2026-07-24 12:00:00` has colons of its own, which let
+        // event = "2026-07-24 12" collide while being neither numeric nor colon-bearing;
+        // that case is exactly why an event-only rule was not exhaustive.
+        //
+        // Not keyed on `subscription.` naming: observed is not exhaustive, and refusing an
+        // unfamiliar-but-legitimate event kind would lose a real payment event. The cost
+        // is that a merchant reference may not contain a colon — there is no escape for
+        // that field, so it is documented rather than worked around.
         //
         // Scalar-gated: a non-scalar keeps its "Missing field" answer from the loop below.
-        if ($isSubscription && is_scalar($event)) {
-            $kind = (string) $event;
+        foreach (['event', 'external_order_id'] as $field) {
+            $value = $data[$field] ?? null;
 
-            if (is_numeric($kind) || str_contains($kind, ':')) {
-                abort(422, 'Invalid field: event');
+            if ($isSubscription && is_scalar($value) && str_contains((string) $value, ':')) {
+                abort(422, "Invalid field: {$field}");
             }
         }
 

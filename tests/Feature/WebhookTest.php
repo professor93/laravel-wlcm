@@ -79,26 +79,43 @@ final class WebhookTest extends TestCase
      * base, and only one of them yields a numeric event. Both must be refused, or the
      * guard closes the tidy half of the attack and leaves the other open.
      *
-     * @return array<string, array{string, string}>
+     * @return array<string, array{string, string, string}>
      */
     public static function collisionSplits(): array
     {
+        // Every way of cutting `1254:7788:2:2026-07-24 12:00:00` into the subscription
+        // base's three fields. The last two exist only because the timestamp carries
+        // colons of its own, and neither is numeric nor colon-bearing in the EVENT —
+        // which is why a rule about the event alone was not exhaustive.
         return [
-            'numeric event' => ['1254:7788', '2'],
-            'colon event' => ['1254', '7788:2'],
+            'numeric event' => ['1254:7788', '2', '2026-07-24 12:00:00'],
+            'colon event' => ['1254', '7788:2', '2026-07-24 12:00:00'],
+            'timestamp split' => ['1254:7788:2', '2026-07-24 12', '00:00'],
+            'deeper timestamp split' => ['1254:7788:2', '2026-07-24 12:00', '00'],
         ];
     }
 
     #[DataProvider('collisionSplits')]
-    public function test_a_payment_delivery_cannot_be_replayed_as_a_subscription(string $reference, string $event): void
+    public function test_a_payment_delivery_cannot_be_replayed_as_a_subscription(string $reference, string $event, string $timestamp): void
     {
         Event::fake();
+        // Freshness off, so the guard is what is being measured. It is a supported
+        // setting, and a guard that only holds because a second check happens to catch
+        // the leftovers is not a guard.
+        config(['wlcm.webhook.tolerance_seconds' => null]);
         $payment = $this->payload();
+
+        // Sanity: this really is the same signed string, or the case proves nothing.
+        $this->assertSame(
+            "1254:7788:2:{$payment['timestamp']}",
+            "{$reference}:{$event}:{$timestamp}",
+            'the split does not reconstruct the payment base',
+        );
 
         $this->postJson('/wlcm/webhook', [
             'event' => $event,
             'external_order_id' => $reference,
-            'timestamp' => $payment['timestamp'],
+            'timestamp' => $timestamp,
             'signature' => $payment['signature'], // byte-identical, never recomputed
         ])->assertStatus(422);
 
