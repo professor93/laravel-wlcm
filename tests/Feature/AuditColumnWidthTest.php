@@ -143,6 +143,37 @@ final class AuditColumnWidthTest extends TestCase
         }
     }
 
+    /**
+     * Mysql rejects a json document over 100 levels deep and the audit write is swallowed,
+     * so a delivery that dispatched and fired its events left NO log row — while postgres
+     * stored the same body without complaint. Payload shape alone decided whether a
+     * dispatched delivery was auditable.
+     */
+    public function test_a_very_deep_body_still_lands_an_audit_row(): void
+    {
+        $deep = 'leaf';
+
+        for ($i = 0; $i < 200; $i++) {
+            $deep = ['n' => $deep];
+        }
+
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1254, 'state' => 1, 'deep' => $deep], 201)]);
+        Exceptions::fake();
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->response_body);
+        $this->assertSame('depth', $log->response_body['wlcm_reshaped'] ?? null, 'the reshape was not recorded');
+        // Nothing discarded — the whole body is still there, encoded.
+        $encoded = $log->response_body['body'] ?? '';
+        $this->assertIsString($encoded);
+        $this->assertStringContainsString('leaf', $encoded);
+        Exceptions::assertNothingReported();
+    }
+
     public function test_a_checkout_with_an_over_long_external_id_still_leaves_both_audit_rows(): void
     {
         $externalId = str_pad('REPRO-', 120, 'X');
