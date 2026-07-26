@@ -57,6 +57,26 @@ final class ServerIdFidelityTest extends TestCase
         return $data;
     }
 
+    /**
+     * `event` rides outside the payment signature base, so one captured payment signature
+     * plus `"event": ""` costs an attacker nothing. The middleware routes that as a
+     * PAYMENT (empty means absent) while WebhookLogIds used `isset()`, which is true for
+     * `''`, and routed it as a SUBSCRIPTION — reading an absent `external_order_id` and
+     * nulling the audit row's correlation column. Two detectors, two answers, one
+     * delivery.
+     */
+    public function test_an_empty_event_cannot_null_the_audit_correlation(): void
+    {
+        Event::fake();
+        $data = $this->webhookData(self::PAYMENT_A, 'ORD-KEEPME');
+        $data['event'] = '';
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $this->assertSame('ORD-KEEPME', WlcmLog::sole()->external_id, 'an empty event nulled the audit correlation');
+        $this->assertSame('ORD-KEEPME', WlcmTransaction::sole()->external_id);
+    }
+
     public function test_two_luhn_coincident_payment_ids_stay_two_transactions(): void
     {
         $recorder = app(TransactionStore::class);

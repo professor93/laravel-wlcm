@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Storage;
 
+use Uzbek\Wlcm\Webhooks\WebhookFamily;
+
 final class WebhookLogIds
 {
     /**
-     * Family split, same rule the middleware uses: only subscriptions carry `event`.
+     * Family split via WebhookFamily — literally the same predicate the middleware calls,
+     * not a second one that happens to agree: only subscriptions carry `event`.
      * Their merchant reference is external_order_id, filed under external_id to
      * match the wlcm_transactions claim row; subscription_id is WLCM's own
      * namespace and would collide with a payment id in the same column.
@@ -21,7 +24,7 @@ final class WebhookLogIds
      */
     public static function from(array $payload): array
     {
-        $externalId = isset($payload['event'])
+        $externalId = WebhookFamily::isSubscription($payload)
             ? $payload['external_order_id'] ?? null
             : $payload['external_id'] ?? null;
 

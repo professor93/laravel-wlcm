@@ -46,10 +46,21 @@ final readonly class VerifyWebhookSignature
         /** @var array<string, mixed> $data */
         $data = is_array($decoded) ? $decoded : (array) $request->all();
 
-        // Subscription events carry `event` field; payment webhooks never do. Empty counts
-        // as absent, matching what a stock app's ConvertEmptyStringsToNull already did.
-        $event = $data['event'] ?? null;
-        $isSubscription = $event !== null && $event !== '';
+        // Subscription events carry `event` field; payment webhooks never do. Shared with
+        // WebhookLogIds so the audit trail cannot disagree with the router about which
+        // family a delivery belongs to.
+        $isSubscription = WebhookFamily::isSubscription($data);
+
+        foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
+            $value = $data[$field] ?? null;
+
+            // Empty counts as missing. An empty payment_id coerces to '' and every such
+            // row collides on unique(connection, ''), where a claim would answer the
+            // second, genuinely distinct delivery Duplicate and swallow it.
+            if ($value === null || ! is_scalar($value) || (string) $value === '') {
+                abort(422, "Missing field: {$field}");
+            }
+        }
 
         // A payment base {order_id}:{payment_id}:{state}:{timestamp} and a subscription
         // base {external_order_id}:{event}:{timestamp} are both bare colon joins, so a
@@ -75,17 +86,6 @@ final readonly class VerifyWebhookSignature
 
             if ($isSubscription && is_scalar($value) && str_contains((string) $value, ':')) {
                 abort(422, "Invalid field: {$field}");
-            }
-        }
-
-        foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
-            $value = $data[$field] ?? null;
-
-            // Empty counts as missing. An empty payment_id coerces to '' and every such
-            // row collides on unique(connection, ''), where a claim would answer the
-            // second, genuinely distinct delivery Duplicate and swallow it.
-            if ($value === null || ! is_scalar($value) || (string) $value === '') {
-                abort(422, "Missing field: {$field}");
             }
         }
 

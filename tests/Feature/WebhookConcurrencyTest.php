@@ -516,10 +516,17 @@ final class WebhookConcurrencyTest extends TestCase
     }
 
     /**
+     * DO NOT DELETE THIS AS REDUNDANT. It is the ONLY detector for the `wlcm_data`
+     * loud-failure requirement — no e2e cell can express it, because every HTTP cell goes
+     * through the route and the middleware therefore always sets the attribute, and the
+     * ladder harness sets it itself. A mutation run confirmed that: the mutant returns
+     * 200, writes a transaction row, dispatches, and leaves the audit row with a NULL
+     * payment_id, and no battery on either engine notices.
+     *
      * A missing `wlcm_payload` already fails loudly. `wlcm_data` defaulted to `[]`, so the
      * same mistake dispatched the delivery, wrote the transaction row, and emptied only
-     * the audit trail — the exact class of silent failure this range keeps producing. It
-     * bit the harness within an hour of shipping.
+     * the audit trail — a failure whose whole signature is silence, which is exactly why
+     * its only guard needs saying out loud. It bit the harness within an hour of shipping.
      */
     public function test_a_controller_invoked_without_the_verified_document_fails_loudly(): void
     {
