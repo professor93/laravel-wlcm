@@ -35,6 +35,12 @@ return [
         // Reject signed deliveries whose timestamp is further than this from now.
         // null is the only disable; non-numeric or non-positive throws.
         'tolerance_seconds' => 300,
+        // How long a claim counts as in flight. Only a hard-killed worker waits it out:
+        // a handler that throws releases the claim on the spot. Set it above your
+        // slowest handler — a handler that outruns it can be dispatched twice. Unlike
+        // tolerance_seconds there is no null disable; null, non-numeric or non-positive
+        // throws MissingConfigurationException on the first delivery.
+        'lease_seconds' => 60,
     ],
 
     'storage' => [

@@ -491,6 +491,10 @@ final class StorageWiringTest extends TestCase
                 return WebhookOutcome::Fresh;
             }
 
+            public function releaseClaim(WebhookPayload $payload, string $token): void {}
+
+            public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void {}
+
             public function markProcessed(WebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markProcessed';
@@ -534,6 +538,10 @@ final class StorageWiringTest extends TestCase
 
                 return WebhookOutcome::Fresh;
             }
+
+            public function releaseClaim(WebhookPayload $payload, string $token): void {}
+
+            public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void {}
 
             public function markProcessed(WebhookPayload $payload, string $token): void
             {

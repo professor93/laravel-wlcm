@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Storage;
 
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\ConcurrencyErrorDetector;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Throwable;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Exceptions\WebhookClaimException;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Support\ConfigToggle;
@@ -21,11 +24,50 @@ use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
 final class TransactionRecorder implements TransactionStore
 {
+    private const int CLAIM_ATTEMPTS = 3;
+
     public function __construct(private readonly Repository $config) {}
 
     private function enabled(): bool
     {
         return ConfigToggle::enabled($this->config->get('wlcm.storage.transactions', false), 'wlcm.storage.transactions');
+    }
+
+    // Validated on every claim, never only on the contended branch: a typo must die on
+    // delivery one, not during the storm it was added to survive. No null disable —
+    // "no lease" means either no exclusion (the bug) or a crashed row stuck forever.
+    private function leaseSeconds(): int
+    {
+        $seconds = $this->config->get('wlcm.webhook.lease_seconds', 60);
+
+        if (! is_numeric($seconds) || (int) $seconds <= 0) {
+            throw MissingConfigurationException::forKey('wlcm.webhook.lease_seconds');
+        }
+
+        return (int) $seconds;
+    }
+
+    /**
+     * A live claim: unprocessed, held, and stamped inside the window. Future-dated is
+     * treated as dead — a server whose clock runs ahead would otherwise hold the lease
+     * for the skew, and a suppression that never expires is a lost payment.
+     *
+     * @param  Builder<WlcmTransaction>  $query
+     * @return Builder<WlcmTransaction>
+     */
+    private static function deadClaim(Builder $query, Carbon $now, Carbon $cutoff): Builder
+    {
+        return $query->where(fn (Builder $dead): Builder => $dead
+            ->whereNull('dispatch_token')
+            ->orWhereNull('claimed_at')
+            ->orWhere('claimed_at', '<=', $cutoff)
+            ->orWhere('claimed_at', '>', $now));
+    }
+
+    // Deadlock, serialization failure, sqlite busy. Same set a retrying transaction uses.
+    private static function contended(QueryException $e): bool
+    {
+        return (new ConcurrencyErrorDetector)->causedByConcurrencyError($e);
     }
 
     /** @param array<string, mixed> $requestPayload */
@@ -59,77 +101,177 @@ final class TransactionRecorder implements TransactionStore
         }
     }
 
-    // Claim-then-dispatch: Fresh rows keep processed_at null until controller
-    // finishes events+handler, so crash mid-dispatch reprocesses on redelivery.
+    // No transaction and no lockForUpdate anywhere below. Each statement is atomic on
+    // its own; the transaction only ever bought gap-lock deadlocks and, on pgsql, an
+    // aborted transaction we could not read out of.
     public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
     {
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
 
-        return DB::transaction(function () use ($payload, $token): WebhookOutcome {
-            $row = WlcmTransaction::query()
-                ->where('connection', ColumnFit::value('connection', $payload->connection))
-                ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId))
-                ->lockForUpdate()
-                ->first();
+        $lease = $this->leaseSeconds();
+        $connection = ColumnFit::value('connection', $payload->connection);
+        $paymentId = ColumnFit::value('payment_id', $payload->paymentId);
 
-            if ($row !== null && $row->state === $payload->state) {
-                if ($row->processed_at !== null) {
-                    return WebhookOutcome::Duplicate;
+        for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; $attempt++) {
+            try {
+                $outcome = $this->claimPayment($payload, $token, $connection, $paymentId, $lease);
+
+                if ($outcome !== null) {
+                    return $outcome;
+                }
+            } catch (UniqueConstraintViolationException $e) {
+                // Lost an insert race. Caught BEFORE QueryException on purpose: bindings
+                // are interpolated into the message the concurrency detector reads, so a
+                // merchant id spelling "database is locked" must never route here.
+                if ($attempt === self::CLAIM_ATTEMPTS) {
+                    throw $e;
+                }
+            } catch (QueryException $e) {
+                if ($attempt === self::CLAIM_ATTEMPTS || ! self::contended($e)) {
+                    throw $e;
                 }
 
-                // Retaking the claim gives this dispatch its own identity, so the stamp
-                // it lands later can only ever hit its own row.
-                $row->update(self::claimColumns($token, now()));
+                usleep(random_int(5_000, 25_000));
+            }
+        }
 
-                return WebhookOutcome::Fresh;
+        // Fail closed and loud. A 500 is a delivery someone can be asked to replay; a
+        // guessed Duplicate is a payment event that never fires.
+        throw WebhookClaimException::contended('payment');
+    }
+
+    // null = the row moved under us; the caller re-reads and re-decides.
+    private function claimPayment(
+        WebhookPayload $payload,
+        string $token,
+        ?string $connection,
+        ?string $paymentId,
+        int $lease,
+    ): ?WebhookOutcome {
+        $now = now();
+        $cutoff = $now->copy()->subSeconds($lease);
+
+        $row = WlcmTransaction::query()
+            ->where('connection', $connection)
+            ->where('payment_id', $paymentId)
+            ->first();
+
+        if ($row !== null) {
+            if ($row->state === $payload->state) {
+                // Same delivery. Only a claim that is finished or provably dead may be
+                // retaken. Reading processed_at to decide is the line that dispatched ten
+                // times; the affected-row count decides instead.
+                $taken = self::deadClaim(
+                    WlcmTransaction::query()
+                        ->whereKey($row->getKey())
+                        ->where('state', $payload->state)
+                        ->whereNull('processed_at'),
+                    $now,
+                    $cutoff,
+                )->update(self::claimColumns($token, $now));
+
+                return $taken === 1
+                    ? WebhookOutcome::Fresh
+                    : $this->verdict($row->getKey(), $token, $payload->state);
             }
 
-            // Terminal rows accept only post-success cancel (-2); rest is stale replay.
-            $terminal = [PaymentState::Success->value, PaymentState::Cancelled->value, PaymentState::CancelledDuringInit->value];
-
-            if ($row !== null && in_array($row->state, $terminal, true) && $payload->state !== PaymentState::Cancelled->value) {
+            // A different state is a different logical delivery, but the ladder runs one
+            // way. A backward move is a stale replay, and letting one through lets two
+            // states ping-pong the row and re-dispatch whatever is still in flight on it.
+            if (! self::advances($row->state, $payload->state)) {
                 return WebhookOutcome::Stale;
             }
 
-            $attributes = ColumnFit::row([
-                'api' => 'partner',
-                'external_id' => self::scrubbed($payload->externalId),
-                'order_id' => $payload->orderId,
-                'payment_id' => $payload->paymentId,
-                'amount_tiyin' => $payload->amountTiyin(),
-                'provider' => self::scrubbed($payload->provider),
-                'state' => $payload->state,
-                'state_text' => $payload->stateEnum()?->name,
-                ...self::claimColumns($token, now()),
-            ]);
+            $moved = WlcmTransaction::query()
+                ->whereKey($row->getKey())
+                ->where('state', $row->state) // CAS: only off the state we actually read.
+                ->update([...$this->payloadColumns($payload), ...self::claimColumns($token, $now)]);
 
-            if ($row !== null) {
-                $row->update($attributes);
+            return $moved === 1 ? WebhookOutcome::Fresh : null;
+        }
 
-                return WebhookOutcome::Fresh;
-            }
+        // No row for this payment_id. Adopt this order's checkout row if one is free.
+        // Read the id first: UPDATE ... LIMIT is mysql-only.
+        $checkoutId = WlcmTransaction::query()
+            ->where('connection', $connection)
+            ->where('order_id', ColumnFit::value('order_id', $payload->orderId))
+            ->whereNull('payment_id')
+            ->value('id');
 
-            $checkoutRow = WlcmTransaction::query()
-                ->where('connection', ColumnFit::value('connection', $payload->connection))
-                ->where('order_id', ColumnFit::value('order_id', $payload->orderId))
-                ->whereNull('payment_id')
-                ->lockForUpdate()
-                ->first();
+        if ($checkoutId !== null) {
+            $adopted = WlcmTransaction::query()
+                ->whereKey($checkoutId)
+                ->whereNull('payment_id') // Re-asserted: the read above took no lock.
+                ->update([...$this->payloadColumns($payload), ...self::claimColumns($token, $now)]);
 
-            if ($checkoutRow !== null) {
-                $checkoutRow->update($attributes);
+            return $adopted === 1 ? WebhookOutcome::Fresh : null;
+        }
 
-                return WebhookOutcome::Fresh;
-            }
+        WlcmTransaction::query()->create([
+            'connection' => $connection,
+            ...$this->payloadColumns($payload),
+            ...self::claimColumns($token, $now),
+        ]);
 
-            WlcmTransaction::query()->create(
-                ['connection' => ColumnFit::value('connection', $payload->connection), ...$attributes],
-            );
+        return WebhookOutcome::Fresh;
+    }
 
+    private function verdict(mixed $id, string $token, int $state): ?WebhookOutcome
+    {
+        $row = WlcmTransaction::query()->whereKey($id)->first();
+
+        if ($row === null) {
+            return null; // Pruned under us. Re-run: the insert path takes it.
+        }
+
+        // Our own token: the write landed and only the client's view of it was lost.
+        // Laravel silently re-runs a statement whose connection died mid-flight (it only
+        // skips that inside a transaction, and there is none here), and the re-run reads
+        // our committed claim and reports zero rows.
+        if ($row->getAttribute('dispatch_token') === $token) {
             return WebhookOutcome::Fresh;
-        });
+        }
+
+        if ($row->state !== $state) {
+            return null; // Moved on; re-decide against the state it actually holds.
+        }
+
+        return $row->processed_at !== null ? WebhookOutcome::Duplicate : WebhookOutcome::InFlight;
+    }
+
+    // WLCM states are a one-way ladder. Unmodelled states have no rung, so they are never
+    // refused — the ladder is our model of WLCM's, not WLCM's.
+    private static function advances(?int $from, int $to): bool
+    {
+        return self::rung($to) < 0 || self::rung($to) > self::rung($from);
+    }
+
+    private static function rung(?int $state): int
+    {
+        return match ($state) {
+            PaymentState::Created->value => 0,
+            PaymentState::Initiating->value => 1,
+            PaymentState::Success->value, PaymentState::CancelledDuringInit->value => 2,
+            PaymentState::Cancelled->value => 3,
+            default => -1,
+        };
+    }
+
+    /** @return array<string, mixed> */
+    private function payloadColumns(WebhookPayload $payload): array
+    {
+        return ColumnFit::row([
+            'api' => 'partner',
+            'external_id' => self::scrubbed($payload->externalId),
+            'order_id' => $payload->orderId,
+            'payment_id' => $payload->paymentId,
+            'amount_tiyin' => $payload->amountTiyin(),
+            'provider' => self::scrubbed($payload->provider),
+            'state' => $payload->state,
+            'state_text' => $payload->stateEnum()?->name,
+        ]);
     }
 
     public function markProcessed(WebhookPayload $payload, string $token): void
@@ -147,46 +289,96 @@ final class TransactionRecorder implements TransactionStore
             ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
     }
 
+    // Release, not mark: the dispatch died, so the next redelivery must run it again —
+    // with no lease wait. Token-scoped, or a late release clears a live claim and lets a
+    // third copy in.
+    public function releaseClaim(WebhookPayload $payload, string $token): void
+    {
+        if (! $this->enabled()) {
+            return;
+        }
+
+        $this->release(WlcmTransaction::query()
+            ->where('connection', ColumnFit::value('connection', $payload->connection))
+            ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId)), $token);
+    }
+
     public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
     {
         if (! $this->enabled()) {
             return WebhookOutcome::Fresh;
         }
 
+        $lease = $this->leaseSeconds();
         $key = $this->subscriptionKey($payload);
+        $connection = ColumnFit::value('connection', $payload->connection);
 
-        try {
-            WlcmTransaction::query()->create(ColumnFit::row([
-                'connection' => $payload->connection,
-                'api' => 'subscription',
-                'external_id' => self::scrubbed($payload->externalOrderId),
-                'state_text' => self::scrubbed($payload->event),
-                // Keyed hmac over the raw values: unforgeable without the secret, and
-                // scrubbing the preimage would only collide keys without hiding anything.
-                'delivery_key' => $key,
-                ...self::claimColumns($token, now()),
-            ]));
+        for ($attempt = 1; $attempt <= self::CLAIM_ATTEMPTS; $attempt++) {
+            $now = now();
+            $cutoff = $now->copy()->subSeconds($lease);
 
-            return WebhookOutcome::Fresh;
-        } catch (UniqueConstraintViolationException $e) {
-            $existing = WlcmTransaction::query()
-                ->where('connection', ColumnFit::value('connection', $payload->connection))
-                ->where('delivery_key', $key)
-                ->lockForUpdate()
-                ->first();
+            try {
+                WlcmTransaction::query()->create(ColumnFit::row([
+                    'connection' => $payload->connection,
+                    'api' => 'subscription',
+                    'external_id' => self::scrubbed($payload->externalOrderId),
+                    'state_text' => self::scrubbed($payload->event),
+                    // Keyed hmac over the raw values: unforgeable without the secret, and
+                    // scrubbing the preimage would only collide keys without hiding anything.
+                    'delivery_key' => $key,
+                    ...self::claimColumns($token, $now),
+                ]));
 
-            if ($existing === null) {
-                throw $e;
+                return WebhookOutcome::Fresh;
+            } catch (UniqueConstraintViolationException $e) {
+                // Lost the unique(connection, delivery_key) election. That election is a
+                // perfect single winner on all three engines; the old catch threw it away
+                // by re-resolving every loser on processed_at.
+                $taken = self::deadClaim(
+                    WlcmTransaction::query()
+                        ->where('connection', $connection)
+                        ->where('delivery_key', $key)
+                        ->whereNull('processed_at'),
+                    $now,
+                    $cutoff,
+                )->update(['dispatch_token' => $token, 'claimed_at' => $now]);
+
+                if ($taken === 1) {
+                    return WebhookOutcome::Fresh;
+                }
+
+                $existing = WlcmTransaction::query()
+                    ->where('connection', $connection)
+                    ->where('delivery_key', $key)
+                    ->first();
+
+                if ($existing === null) {
+                    if ($attempt === self::CLAIM_ATTEMPTS) {
+                        throw $e;
+                    }
+
+                    continue; // Pruned under us; the insert can have it.
+                }
+
+                // Our own row: the insert committed and the reply was lost, so Laravel
+                // re-ran it against our own unique key.
+                if ($existing->getAttribute('dispatch_token') === $token) {
+                    return WebhookOutcome::Fresh;
+                }
+
+                return $existing->processed_at !== null
+                    ? WebhookOutcome::Duplicate
+                    : WebhookOutcome::InFlight;
+            } catch (QueryException $e) {
+                if ($attempt === self::CLAIM_ATTEMPTS || ! self::contended($e)) {
+                    throw $e;
+                }
+
+                usleep(random_int(5_000, 25_000));
             }
-
-            if ($existing->processed_at !== null) {
-                return WebhookOutcome::Duplicate;
-            }
-
-            $existing->update(self::claimColumns($token, now()));
-
-            return WebhookOutcome::Fresh;
         }
+
+        throw WebhookClaimException::contended('subscription');
     }
 
     public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
@@ -200,6 +392,36 @@ final class TransactionRecorder implements TransactionStore
             ->where('delivery_key', $this->subscriptionKey($payload))
             ->where('dispatch_token', $token)
             ->update(['processed_at' => now(), 'dispatch_token' => null, 'claimed_at' => null]);
+    }
+
+    public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void
+    {
+        if (! $this->enabled()) {
+            return;
+        }
+
+        $this->release(WlcmTransaction::query()
+            ->where('connection', ColumnFit::value('connection', $payload->connection))
+            ->where('delivery_key', $this->subscriptionKey($payload)), $token);
+    }
+
+    /** @param Builder<WlcmTransaction> $query */
+    private function release(Builder $query, string $token): void
+    {
+        try {
+            $query->where('dispatch_token', $token)
+                ->whereNull('processed_at')
+                ->update(['dispatch_token' => null, 'claimed_at' => null]);
+        } catch (Throwable $e) {
+            // Runs with the handler's throwable in flight and must never replace it.
+            // Swallowing costs only the lease: the claim still expires. report() itself
+            // can throw when the app's log channel is down, hence the bare inner catch.
+            try {
+                report($e);
+            } catch (Throwable) {
+                //
+            }
+        }
     }
 
     // Keyed, not bare. Event and timestamp sit readable in the same delivery and the

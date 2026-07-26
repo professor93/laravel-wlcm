@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Throwable;
 use Uzbek\Wlcm\Events\PaymentCancelled;
 use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Events\SubscriptionActivated;
@@ -53,31 +54,43 @@ final readonly class WebhookController
         $outcome = $this->transactions->applyWebhook($payload, $token);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::Stale ? 'stale' : 'duplicate', $logIds);
+            $this->logStore->webhook((string) $payload->connection, $requestData, match ($outcome) {
+                WebhookOutcome::Stale => 'stale',
+                WebhookOutcome::InFlight => 'inflight',
+                default => 'duplicate',
+            }, $logIds);
 
             return new JsonResponse(['status' => 'ok']);
         }
 
         $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
 
-        event(new WebhookReceived($payload));
+        try {
+            event(new WebhookReceived($payload));
 
-        if ($payload->isSuccess()) {
-            event(new PaymentSucceeded($payload));
-        } elseif ($payload->isCancelled()) {
-            event(new PaymentCancelled($payload));
-        }
-
-        $handler = $this->config->get('wlcm.webhook.handler');
-
-        if (is_string($handler) && $handler !== '') {
-            $instance = $this->container->make($handler);
-
-            if (! $instance instanceof WlcmWebhookHandler) {
-                throw MissingConfigurationException::forKey('wlcm.webhook.handler');
+            if ($payload->isSuccess()) {
+                event(new PaymentSucceeded($payload));
+            } elseif ($payload->isCancelled()) {
+                event(new PaymentCancelled($payload));
             }
 
-            $instance->handle($payload);
+            $handler = $this->config->get('wlcm.webhook.handler');
+
+            if (is_string($handler) && $handler !== '') {
+                $instance = $this->container->make($handler);
+
+                if (! $instance instanceof WlcmWebhookHandler) {
+                    throw MissingConfigurationException::forKey('wlcm.webhook.handler');
+                }
+
+                $instance->handle($payload);
+            }
+        } catch (Throwable $e) {
+            // Released claim re-dispatches on the next redelivery with no lease wait. A
+            // hard-killed worker never reaches here — that one waits out lease_seconds.
+            $this->transactions->releaseClaim($payload, $token);
+
+            throw $e;
         }
 
         $this->transactions->markProcessed($payload, $token);
@@ -101,33 +114,39 @@ final readonly class WebhookController
         $outcome = $this->transactions->claimSubscription($payload, $token);
 
         if ($outcome !== WebhookOutcome::Fresh) {
-            $this->logStore->webhook((string) $payload->connection, $requestData, 'duplicate', $logIds);
+            $this->logStore->webhook((string) $payload->connection, $requestData, $outcome === WebhookOutcome::InFlight ? 'inflight' : 'duplicate', $logIds);
 
             return new JsonResponse(['status' => 'ok']);
         }
 
         $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
 
-        event(new WebhookReceived($payload));
+        try {
+            event(new WebhookReceived($payload));
 
-        match ($payload->event) {
-            'subscription.activated' => event(new SubscriptionActivated($payload)),
-            'subscription.charged' => event(new SubscriptionCharged($payload)),
-            'subscription.charge_failed' => event(new SubscriptionChargeFailed($payload)),
-            'subscription.cancelled' => event(new SubscriptionCancelled($payload)),
-            default => null,
-        };
+            match ($payload->event) {
+                'subscription.activated' => event(new SubscriptionActivated($payload)),
+                'subscription.charged' => event(new SubscriptionCharged($payload)),
+                'subscription.charge_failed' => event(new SubscriptionChargeFailed($payload)),
+                'subscription.cancelled' => event(new SubscriptionCancelled($payload)),
+                default => null,
+            };
 
-        $handler = $this->config->get('wlcm.webhook.subscription_handler');
+            $handler = $this->config->get('wlcm.webhook.subscription_handler');
 
-        if (is_string($handler) && $handler !== '') {
-            $instance = $this->container->make($handler);
+            if (is_string($handler) && $handler !== '') {
+                $instance = $this->container->make($handler);
 
-            if (! $instance instanceof WlcmSubscriptionWebhookHandler) {
-                throw MissingConfigurationException::forKey('wlcm.webhook.subscription_handler');
+                if (! $instance instanceof WlcmSubscriptionWebhookHandler) {
+                    throw MissingConfigurationException::forKey('wlcm.webhook.subscription_handler');
+                }
+
+                $instance->handle($payload);
             }
+        } catch (Throwable $e) {
+            $this->transactions->releaseSubscriptionClaim($payload, $token);
 
-            $instance->handle($payload);
+            throw $e;
         }
 
         $this->transactions->markSubscriptionProcessed($payload, $token);

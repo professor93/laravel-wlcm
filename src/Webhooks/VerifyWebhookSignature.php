@@ -33,7 +33,10 @@ final readonly class VerifyWebhookSignature
         foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
             $value = $request->input($field);
 
-            if ($value === null || ! is_scalar($value)) {
+            // Empty counts as missing. An empty payment_id coerces to '' and every such
+            // row collides on unique(connection, ''), where a claim would answer the
+            // second, genuinely distinct delivery Duplicate and swallow it.
+            if ($value === null || ! is_scalar($value) || (string) $value === '') {
                 abort(422, "Missing field: {$field}");
             }
         }
