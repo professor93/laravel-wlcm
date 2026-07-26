@@ -15,6 +15,7 @@ use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 use Uzbek\Wlcm\Tests\TestCase;
@@ -332,6 +333,32 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertSame(2, $succeeded);
     }
 
+    /**
+     * The 'ok' audit write sits between taking the claim and the first event(). LogStore
+     * swallows and report()s, but README:185 documents that report() itself can throw
+     * when the app's default log channel is down — and that throw must not strand the
+     * claim it is standing next to.
+     */
+    public function test_a_throwing_audit_write_does_not_strand_the_claim(): void
+    {
+        app()->instance(LogStore::class, new ThrowingLogStore);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $this->signed('2'));
+            $this->fail('expected the audit throw to surface');
+        } catch (RuntimeException $e) {
+            $this->assertSame('log channel is down', $e->getMessage());
+        }
+
+        $this->withExceptionHandling();
+
+        $row = WlcmTransaction::sole();
+        $this->assertNull($row->dispatch_token, 'a throwing audit write left the claim held');
+        $this->assertNull($row->claimed_at);
+        $this->assertNull($row->processed_at);
+    }
+
     public function test_an_empty_required_field_is_refused_before_any_row_exists(): void
     {
         $data = $this->signed('2');
@@ -375,5 +402,15 @@ final class ThrowingWebhookHandler implements WlcmWebhookHandler
     public function handle(WebhookPayload $payload): void
     {
         throw new RuntimeException('handler exploded');
+    }
+}
+
+final class ThrowingLogStore implements LogStore
+{
+    public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void {}
+
+    public function webhook(string $connection, array $payload, string $result, array $ids = []): void
+    {
+        throw new RuntimeException('log channel is down');
     }
 }

@@ -332,7 +332,7 @@ final class TransactionRecorder implements TransactionStore
             return;
         }
 
-        $this->release(WlcmTransaction::query()
+        $this->release(fn (): Builder => WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('payment_id', ColumnFit::value('payment_id', $payload->paymentId)), $token);
     }
@@ -436,16 +436,23 @@ final class TransactionRecorder implements TransactionStore
             return;
         }
 
-        $this->release(WlcmTransaction::query()
+        $this->release(fn (): Builder => WlcmTransaction::query()
             ->where('connection', ColumnFit::value('connection', $payload->connection))
             ->where('delivery_key', $this->subscriptionKey($payload)), $token);
     }
 
-    /** @param Builder<WlcmTransaction> $query */
-    private function release(Builder $query, string $token): void
+    /**
+     * Takes a factory, not a Builder: building the query here rather than in the caller's
+     * argument list is what makes the promise below true. subscriptionKey() reaches for
+     * the connection secret and can throw, and that throw would have escaped this try and
+     * replaced the handler's own.
+     *
+     * @param  callable(): Builder<WlcmTransaction>  $query
+     */
+    private function release(callable $query, string $token): void
     {
         try {
-            $query->where('dispatch_token', $token)
+            $query()->where('dispatch_token', $token)
                 ->whereNull('processed_at')
                 ->update(['dispatch_token' => null, 'claimed_at' => null]);
         } catch (Throwable $e) {

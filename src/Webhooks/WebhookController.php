@@ -63,9 +63,12 @@ final readonly class WebhookController
             return new JsonResponse(['status' => 'ok']);
         }
 
-        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
-
         try {
+            // Inside the release, not before it: a throwing audit sink would otherwise
+            // leave a held claim with zero events fired, suppressing every redelivery
+            // for a full lease. Ordering relative to event() is unchanged.
+            $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
+
             event(new WebhookReceived($payload));
 
             if ($payload->isSuccess()) {
@@ -119,9 +122,9 @@ final readonly class WebhookController
             return new JsonResponse(['status' => 'ok']);
         }
 
-        $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
-
         try {
+            $this->logStore->webhook((string) $payload->connection, $requestData, 'ok', $logIds);
+
             event(new WebhookReceived($payload));
 
             match ($payload->event) {
