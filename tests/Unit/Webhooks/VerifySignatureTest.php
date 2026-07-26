@@ -300,17 +300,26 @@ final class VerifySignatureTest extends TestCase
         }
     }
 
-    public function test_unparseable_timestamp_403_when_tolerance_set(): void
+    /**
+     * A timestamp that is not a timestamp is now refused as MALFORMED (422) rather than
+     * STALE (403), and refused the same way whether or not freshness is enabled. The shape
+     * check has to run before freshness because a shapeless trailing field is what let a
+     * payment base be re-read as a subscription; answering "stale" also described the
+     * wrong problem.
+     */
+    public function test_unparseable_timestamp_422s_whatever_the_tolerance(): void
     {
-        config()->set('wlcm.webhook.tolerance_seconds', 300);
-        $middleware = $this->app->make(VerifyWebhookSignature::class);
+        foreach ([300, null] as $tolerance) {
+            config()->set('wlcm.webhook.tolerance_seconds', $tolerance);
+            $middleware = $this->app->make(VerifyWebhookSignature::class);
 
-        try {
-            $middleware->handle($this->request($this->dataStampedAt('not-a-time')), fn ($r) => response()->json());
-            $this->fail('expected 403');
-        } catch (HttpException $e) {
-            $this->assertSame(403, $e->getStatusCode());
-            $this->assertSame('Stale webhook timestamp', $e->getMessage());
+            try {
+                $middleware->handle($this->request($this->dataStampedAt('not-a-time')), fn ($r) => response()->json());
+                $this->fail('expected 422');
+            } catch (HttpException $e) {
+                $this->assertSame(422, $e->getStatusCode());
+                $this->assertSame('Invalid field: timestamp', $e->getMessage());
+            }
         }
     }
 

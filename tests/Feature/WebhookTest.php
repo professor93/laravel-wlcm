@@ -83,10 +83,10 @@ final class WebhookTest extends TestCase
      */
     public static function collisionSplits(): array
     {
-        // Every way of cutting `1254:7788:2:2026-07-24 12:00:00` into the subscription
-        // base's three fields. The last two exist only because the timestamp carries
-        // colons of its own, and neither is numeric nor colon-bearing in the EVENT —
-        // which is why a rule about the event alone was not exhaustive.
+        // Illustrative cases only — NOT exhaustive, and claiming it was is what hid the
+        // field-aligned split for three reviews. Coverage lives in
+        // test_no_split_of_a_payment_base_is_accepted_as_a_subscription, which generates
+        // every split instead of listing the ones someone thought of.
         return [
             'numeric event' => ['1254:7788', '2', '2026-07-24 12:00:00'],
             'colon event' => ['1254', '7788:2', '2026-07-24 12:00:00'],
@@ -188,6 +188,63 @@ final class WebhookTest extends TestCase
         $data['payment_id'] = 'subscription.charged:2026-07-24 12';
 
         $this->postJson('/wlcm/webhook', $data)->assertStatus(422);
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    /**
+     * Generated, not hand-listed. Three hand-written completeness arguments about this
+     * guard have now failed, each because someone enumerated the splits they thought of.
+     * This walks EVERY way a captured payment base can be cut across the subscription
+     * base's three fields and asserts each is refused — the field-aligned split
+     * (X=order_id, E=payment_id, T'="state:timestamp") is the one hands kept missing.
+     *
+     * @return array<string, array{string, string, string}>
+     */
+    public static function everyCrossFamilySplit(): array
+    {
+        $cases = [];
+
+        foreach (['2026-07-24 12:00:00', '1745740800000'] as $stamp) {
+            $base = "1254:7788:2:{$stamp}";
+            $parts = explode(':', $base);
+            $n = count($parts);
+
+            for ($i = 1; $i < $n; $i++) {
+                for ($j = $i + 1; $j < $n; $j++) {
+                    $x = implode(':', array_slice($parts, 0, $i));
+                    $e = implode(':', array_slice($parts, $i, $j - $i));
+                    $t = implode(':', array_slice($parts, $j));
+
+                    if ("{$x}:{$e}:{$t}" !== $base) {
+                        continue; // not a reconstruction, nothing to refuse
+                    }
+
+                    $cases["{$stamp} | {$x} | {$e}"] = [$x, $e, $t];
+                }
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('everyCrossFamilySplit')]
+    public function test_no_split_of_a_payment_base_is_accepted_as_a_subscription(string $reference, string $event, string $timestamp): void
+    {
+        Event::fake();
+        // Freshness off: the guard must hold on its own, not because a later check
+        // happens to catch the leftovers. Null tolerance is supported and documented.
+        config(['wlcm.webhook.tolerance_seconds' => null]);
+
+        // The split reconstructs the captured payment base, so that IS the signed string.
+        $base = "{$reference}:{$event}:{$timestamp}";
+        $this->assertStringStartsWith('1254:7788:2:', $base, 'the split does not reconstruct a payment base');
+        $signature = hash_hmac('sha256', $base, 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', [
+            'event' => $event, 'external_order_id' => $reference,
+            'timestamp' => $timestamp, 'signature' => $signature,
+        ])->assertStatus(422);
+
         Event::assertNotDispatched(WebhookReceived::class);
     }
 

@@ -22,6 +22,10 @@ final readonly class VerifyWebhookSignature
 
     private const array REQUIRED_SUBSCRIPTION = ['external_order_id', 'event', 'timestamp'];
 
+    // Epoch seconds, epoch milliseconds, or an ISO-ish datetime. Anchored, so nothing can
+    // be glued in front of it.
+    private const string TIMESTAMP_SHAPE = '/^(?:\d{10}|\d{13}|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)$/';
+
     public function __construct(private Repository $config) {}
 
     /** @param Closure(Request): Response $next */
@@ -52,13 +56,13 @@ final readonly class VerifyWebhookSignature
         // captured payment delivery can replay as a subscription with its signature
         // UNCHANGED.
         //
-        // Completeness: for a collision `X:E` must equal `O:P:S`, so X is a prefix of
-        // O:P:S ending on a colon boundary. Either X carries a colon, or X is exactly O,
-        // in which case E is `P:S` and carries one. Refusing a colon in EITHER field
-        // closes every split — and unlike a rule about the event alone it holds whatever
-        // the timestamp looks like. `2026-07-24 12:00:00` has colons of its own, which let
-        // event = "2026-07-24 12" collide while being neither numeric nor colon-bearing;
-        // that case is exactly why an event-only rule was not exhaustive.
+        // These two guards do NOT close the family on their own, and the derivation that
+        // said they did was wrong three times running. It assumed the replayed
+        // subscription reuses the captured timestamp; `timestamp` is attacker-supplied, so
+        // the real equation is `X:E:T' == O:P:S:T` and it has a field-aligned solution
+        // with both of these fields clean — X=order_id, E=payment_id, T'="state:timestamp".
+        // What closes that one is the timestamp SHAPE guard further down. Coverage is
+        // measured by a generated enumeration over every split, not argued here.
         //
         // Not keyed on `subscription.` naming: observed is not exhaustive, and refusing an
         // unfamiliar-but-legitimate event kind would lose a real payment event. The cost
@@ -115,6 +119,28 @@ final readonly class VerifyWebhookSignature
             if (is_scalar($state) && ! is_numeric((string) $state)) {
                 abort(422, 'Invalid field: state');
             }
+        }
+
+        // The timestamp must LOOK like a timestamp, checked here and not left to the
+        // freshness window. Both bases are colon joins and `timestamp` is the trailing
+        // field, so an unconstrained one can absorb `"{state}:"` and let a payment base be
+        // re-read as a subscription with BOTH colon-guarded fields clean:
+        //
+        //   X="1254" E="7788" T'="2:2026-07-24 12:00:00"  ==  1254:7788:2:2026-07-24 12:00:00
+        //
+        // Freshness happens to reject that shape, but only when tolerance is enabled, and
+        // null tolerance is supported — a guard that holds only because a second check
+        // catches the leftovers is not a guard. Pinning the FORMAT fixes the trailing
+        // field's colon count instead of leaving it attacker-chosen.
+        //
+        // Shapes accepted are the ones WLCM produces: 10/13-digit epochs and ISO-ish
+        // datetimes with an optional T, fraction and offset. Deliberately wider than the
+        // three the fixtures use, so an unobserved-but-legitimate format is not refused —
+        // the same mistake as keying a guard on `subscription.` naming.
+        $timestamp = $data['timestamp'] ?? null;
+
+        if (is_scalar($timestamp) && preg_match(self::TIMESTAMP_SHAPE, (string) $timestamp) !== 1) {
+            abort(422, 'Invalid field: timestamp');
         }
 
         // `amount` rides outside the signature base by WLCM's design, so one captured
