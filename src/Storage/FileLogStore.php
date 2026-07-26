@@ -26,7 +26,7 @@ final class FileLogStore implements LogStore
         array $ids = [],
         string $result = 'ok',
     ): void {
-        if (! $this->enabled()) {
+        if (! $this->enabledForOutbound()) {
             return;
         }
 
@@ -56,7 +56,7 @@ final class FileLogStore implements LogStore
      */
     public function webhook(string $connection, array $payload, string $result, array $ids = []): void
     {
-        if (! $this->enabled()) {
+        if (! $this->enabledForWebhook()) {
             return;
         }
 
@@ -74,16 +74,16 @@ final class FileLogStore implements LogStore
         ]);
     }
 
-    private function enabled(): bool
+    /**
+     * OUTBOUND: never throws to the caller. A driver value poisoned after resolution used
+     * to escape here, ahead of the write's own try/catch, and destroy a payment call whose
+     * HTTP round trip to WLCM had already SUCCEEDED — leaving the merchant unable to tell a
+     * failed payment from a broken audit config. Report and drop.
+     */
+    private function enabledForOutbound(): bool
     {
-        // Never throws to the caller. A driver value poisoned AFTER resolution used to
-        // escape here, ahead of the write's own try/catch, and destroy a payment call
-        // whose HTTP round trip to WLCM had already succeeded — leaving the merchant
-        // unable to tell a failed payment from a broken audit config. Fail-closed still
-        // applies where it is safe: the provider refuses to RESOLVE an unreadable driver,
-        // so a typo present at boot is loud. Past that point, report and drop.
         try {
-            return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
+            return self::configured();
         } catch (Throwable $e) {
             // report() itself can throw when the app's log channel is down, and nothing
             // here may reach the caller.
@@ -95,6 +95,30 @@ final class FileLogStore implements LogStore
 
             return false;
         }
+    }
+
+    /**
+     * INBOUND: throws, and the difference from the outbound rule is the whole point.
+     *
+     * Nothing has happened upstream when a delivery arrives, so a 500 costs only a
+     * redelivery. The controller writes this audit row FIRST inside its try, so a throw
+     * here releases the claim and WLCM tries again with nothing dispatched. Swallowing
+     * instead fires WebhookReceived and PaymentSucceeded, stamps processed_at, and answers
+     * 200 with ZERO audit rows for a money event that really fired — the state `34af392`
+     * exists to prevent, and a fourth possibility the audit contract never documented.
+     *
+     * Applying the outbound rationale to this path was a real defect. Do not re-merge them.
+     */
+    private function enabledForWebhook(): bool
+    {
+        return self::configured();
+    }
+
+    // Fail-closed at RESOLVE time is unchanged and lives in the provider: it refuses to
+    // build a store for an unreadable driver, so a typo present at boot is loud either way.
+    private static function configured(): bool
+    {
+        return ConfigToggle::logsEnabled(config('wlcm.storage.logs', false));
     }
 
     /** @param array<string, mixed> $entry */

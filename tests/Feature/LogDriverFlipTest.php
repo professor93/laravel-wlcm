@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Throwable;
+use Uzbek\Wlcm\Events\PaymentSucceeded;
+use Uzbek\Wlcm\Events\WebhookReceived;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
+use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
 use Uzbek\Wlcm\Storage\FileLogStore;
@@ -41,6 +45,8 @@ final class LogDriverFlipTest extends TestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('wlcm.storage.logs', 'database');
+        $app['config']->set('wlcm.storage.transactions', true);
+        $app['config']->set('wlcm.webhook.tolerance_seconds', null);
     }
 
     /**
@@ -147,20 +153,40 @@ final class LogDriverFlipTest extends TestCase
         ];
     }
 
-    /** @param class-string<LogStore> $driver */
+    /**
+     * OUTBOUND, every driver: must not throw. Split from the inbound case below after that
+     * one turned out to have the opposite requirement — an earlier version of this test
+     * asserted BOTH paths stay quiet, which was pinning a money-path defect.
+     *
+     * @param  class-string<LogStore>  $driver
+     */
     #[DataProvider('everyDriver')]
-    public function test_no_driver_throws_out_of_a_write_on_a_poisoned_config(string $driver): void
+    public function test_no_driver_throws_out_of_an_outbound_write(string $driver): void
     {
         Exceptions::fake();
         config(['wlcm.storage.logs' => 'databse']);
 
-        $store = new $driver;
-
-        $store->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
-        $store->webhook('main', ['order_id' => '1'], 'ok');
+        (new $driver)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
 
         $this->assertSame(0, WlcmLog::query()->count());
         Exceptions::assertReported(MissingConfigurationException::class);
+    }
+
+    /**
+     * INBOUND, every driver: must throw, so the controller can release the claim and let
+     * WLCM redeliver rather than dispatching a money event nobody can audit.
+     *
+     * @param  class-string<LogStore>  $driver
+     */
+    #[DataProvider('everyDriver')]
+    public function test_every_driver_throws_out_of_a_webhook_write(string $driver): void
+    {
+        config(['wlcm.storage.logs' => 'databse']);
+
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('wlcm.storage.logs');
+
+        (new $driver)->webhook('main', ['order_id' => '1'], 'ok');
     }
 
     // Boot-time is still fail-closed: the provider will not resolve an unreadable driver.
@@ -188,5 +214,49 @@ final class LogDriverFlipTest extends TestCase
         ], 200)]);
 
         return Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 't-1');
+    }
+
+    /**
+     * THE INBOUND HALF, and the reason `enabled()` cannot be one shared method.
+     *
+     * Report-and-drop is right OUTBOUND: the payment already completed at WLCM, so throwing
+     * would destroy a call whose money moved. Applying the same rule INBOUND inverts it —
+     * nothing has happened upstream yet, and a 500 is simply a redelivery. The controller
+     * writes the audit row FIRST inside its try, so a throw there releases the claim and
+     * WLCM tries again; swallowing instead fires WebhookReceived + PaymentSucceeded, stamps
+     * processed_at, and answers 200 with ZERO audit rows for a dispatched money event.
+     *
+     * That is the exact state `34af392` exists to prevent, reached through another door, and
+     * it adds an undocumented fourth possibility to the audit contract — README says an `ok`
+     * with no successor means a worker died mid-dispatch, and "nothing at all" was not on
+     * the list.
+     */
+    public function test_a_poisoned_config_never_dispatches_a_money_event_unaudited(): void
+    {
+        Event::fake();
+        app(LogStore::class);
+        config(['wlcm.storage.logs' => 'databse']);
+
+        $this->postJson('/wlcm/webhook', $this->signedWebhook())->assertStatus(500);
+
+        Event::assertNotDispatched(WebhookReceived::class);
+        Event::assertNotDispatched(PaymentSucceeded::class);
+        $this->assertSame(0, WlcmLog::query()->count());
+        // Claim released, so WLCM's redelivery can still be handled once the config is fixed.
+        $this->assertNull(WlcmTransaction::sole()->processed_at, 'the claim was stamped despite no audit row');
+        $this->assertNull(WlcmTransaction::sole()->dispatch_token, 'the claim was not released');
+    }
+
+    /** @return array<string, string> */
+    private function signedWebhook(): array
+    {
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', '1254:7788:2:2026-07-24 12:00:00', 'whsec_test');
+
+        return $data;
     }
 }

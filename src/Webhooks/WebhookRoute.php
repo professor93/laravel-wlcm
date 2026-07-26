@@ -101,6 +101,13 @@ final class WebhookRoute
 
         // A domained route cannot be probed without knowing its host, but one sitting on
         // our URI does serve our endpoint for that host, unverified. Reported on identity.
+        //
+        // DELIBERATE OVER-REPORT, not an oversight: this also fires for a domained route on
+        // a host WLCM never posts to — an admin.example.com route cannot take the slot for
+        // deliveries addressed to api.example.com. The host is unknowable at boot, this is a
+        // report() rather than a refusal, and erring toward noise beats staying silent about
+        // an unverified endpoint. A miss here would be the failure; a false alarm is a
+        // five-second `route:list`.
         foreach ($router->getRoutes()->get('POST') as $route) {
             if ($route->getDomain() !== null
                 && $route->uri() === self::uri($configuredPath)
