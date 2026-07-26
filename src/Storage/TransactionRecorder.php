@@ -291,7 +291,21 @@ final class TransactionRecorder implements TransactionStore
             return null; // Moved on; re-decide against the state it actually holds.
         }
 
-        return $row->processed_at !== null ? WebhookOutcome::Duplicate : WebhookOutcome::InFlight;
+        // processed_at FIRST: a finished delivery also has a null token, and that one is
+        // genuinely a duplicate.
+        if ($row->processed_at !== null) {
+            return WebhookOutcome::Duplicate;
+        }
+
+        // Free at read-back. Whoever held it released between our swap and this read — a
+        // throwing handler does exactly that — so the delivery is ours to take. Answering
+        // InFlight here is terminal at the caller, so the retry loop never ran and NOBODY
+        // dispatched: the releaser had already aborted.
+        if ($row->getAttribute('dispatch_token') === null) {
+            return null;
+        }
+
+        return WebhookOutcome::InFlight;
     }
 
     /**
@@ -435,9 +449,20 @@ final class TransactionRecorder implements TransactionStore
                     return WebhookOutcome::Fresh;
                 }
 
-                return $existing->processed_at !== null
-                    ? WebhookOutcome::Duplicate
-                    : WebhookOutcome::InFlight;
+                if ($existing->processed_at !== null) {
+                    return WebhookOutcome::Duplicate;
+                }
+
+                // Same window as the payment path: released between our claim attempt and
+                // this read, so it is takeable. Exhausting the budget here ends the loop
+                // on WebhookClaimException, which fails closed rather than silently.
+                if ($existing->getAttribute('dispatch_token') === null) {
+                    self::backoff($attempt);
+
+                    continue;
+                }
+
+                return WebhookOutcome::InFlight;
             } catch (QueryException $e) {
                 if ($attempt === self::CLAIM_ATTEMPTS || ! self::contended($e)) {
                     throw $e;

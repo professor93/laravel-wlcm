@@ -299,6 +299,65 @@ final class WebhookConcurrencyTest extends TestCase
         );
     }
 
+    /**
+     * The losing copy re-reads to classify itself, and the holder can release inside that
+     * gap — a handler throwing is exactly when that happens, en masse. A row that is FREE
+     * at read-back is claimable, not in flight; answering InFlight is terminal at the
+     * caller, so the retry loop never runs and NOBODY dispatches: the releaser aborted and
+     * the loser was told someone else had it.
+     */
+    public function test_a_claim_released_during_the_read_back_is_retaken(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Fire the release into the window: after the loser's compare-and-swap has come
+        // back empty, before it reads the row to decide what that meant.
+        $released = false;
+        DB::listen(function (QueryExecuted $query) use (&$released, $store): void {
+            if ($released || ! str_contains($query->sql, 'dispatch_token')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, '"id" =')) {
+                return;
+            }
+
+            $released = true;
+            $store->releaseClaim($this->payload('2'), 'tok-a');
+        });
+
+        $outcome = $store->applyWebhook($this->payload('2'), 'tok-b');
+
+        $this->assertTrue($released, 'the release never landed in the window, so nothing was proven');
+        $this->assertSame(WebhookOutcome::Fresh, $outcome, 'a free row was answered InFlight and the dispatch was lost');
+    }
+
+    public function test_a_subscription_claim_released_during_the_read_back_is_retaken(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->claimSubscription($this->subscription(), 'tok-a');
+
+        $released = false;
+        DB::listen(function (QueryExecuted $query) use (&$released, $store): void {
+            if ($released || ! str_contains($query->sql, 'dispatch_token') || ! str_contains($query->sql, 'delivery_key')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'update')) {
+                return;
+            }
+
+            $released = true;
+            $store->releaseSubscriptionClaim($this->subscription(), 'tok-a');
+        });
+
+        $outcome = $store->claimSubscription($this->subscription(), 'tok-b');
+
+        $this->assertTrue($released, 'the release never landed in the window, so nothing was proven');
+        $this->assertSame(WebhookOutcome::Fresh, $outcome, 'a free row was answered InFlight and the dispatch was lost');
+    }
+
     public function test_the_expiry_clamp_gives_a_claim_its_full_lease(): void
     {
         Carbon::setTestNow('2026-07-26 12:00:00');
