@@ -170,7 +170,13 @@ final class TransactionRecorder implements TransactionStore
         $cutoff = $now->copy()->subSeconds($lease);
         $horizon = $now->copy()->addSeconds($lease);
 
+        // Every read below classifies, and a classification off a lagging replica is a
+        // lost dispatch: DB::transaction and lockForUpdate used to force these onto the
+        // write pdo for free, and both are gone. The CAS statements are immune — an
+        // UPDATE predicate always evaluates on the primary — so only the reads need it.
+        // No cost on a single-host database.
         $row = WlcmTransaction::query()
+            ->useWritePdo()
             ->where('connection', $connection)
             ->where('payment_id', $paymentId)
             ->first();
@@ -212,6 +218,7 @@ final class TransactionRecorder implements TransactionStore
         // No row for this payment_id. Adopt this order's checkout row if one is free.
         // Read the id first: UPDATE ... LIMIT is mysql-only.
         $checkoutId = WlcmTransaction::query()
+            ->useWritePdo()
             ->where('connection', $connection)
             ->where('order_id', ColumnFit::value('order_id', $payload->orderId))
             ->whereNull('payment_id')
@@ -237,7 +244,7 @@ final class TransactionRecorder implements TransactionStore
 
     private function verdict(mixed $id, string $token, int $state): ?WebhookOutcome
     {
-        $row = WlcmTransaction::query()->whereKey($id)->first();
+        $row = WlcmTransaction::query()->useWritePdo()->whereKey($id)->first();
 
         if ($row === null) {
             return null; // Pruned under us. Re-run: the insert path takes it.
@@ -376,6 +383,7 @@ final class TransactionRecorder implements TransactionStore
                 }
 
                 $existing = WlcmTransaction::query()
+                    ->useWritePdo()
                     ->where('connection', $connection)
                     ->where('delivery_key', $key)
                     ->first();
