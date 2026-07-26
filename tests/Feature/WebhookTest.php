@@ -204,7 +204,20 @@ final class WebhookTest extends TestCase
     {
         $cases = [];
 
-        foreach (['2026-07-24 12:00:00', '1745740800000'] as $stamp) {
+        // Every timestamp shape the guard ACCEPTS, so the case set is derived from the
+        // rule under test rather than from two examples someone picked. The offset forms
+        // carry an extra colon and produce 15 splits each rather than 10 — exactly the
+        // kind of gap a hand-chosen fixture list leaves behind.
+        $stamps = [
+            '1745740800000',
+            '1750000000',
+            '2026-07-24 12:00:00',
+            '2026-07-24T12:00:00Z',
+            '2026-07-24T12:00:00+05:00',
+            '2026-07-24T12:00:00.123+05:00',
+        ];
+
+        foreach ($stamps as $stamp) {
             $base = "1254:7788:2:{$stamp}";
             $parts = explode(':', $base);
             $n = count($parts);
