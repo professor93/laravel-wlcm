@@ -26,6 +26,9 @@ final class TransactionRecorder implements TransactionStore
 {
     private const int CLAIM_ATTEMPTS = 3;
 
+    // Settled rungs: Success and CancelledDuringInit sit at 2, Cancelled at 3.
+    private const int TERMINAL_RUNG = 2;
+
     public function __construct(private readonly Repository $config) {}
 
     private function enabled(): bool
@@ -255,11 +258,21 @@ final class TransactionRecorder implements TransactionStore
         return $row->processed_at !== null ? WebhookOutcome::Duplicate : WebhookOutcome::InFlight;
     }
 
-    // WLCM states are a one-way ladder. Unmodelled states have no rung, so they are never
-    // refused — the ladder is our model of WLCM's, not WLCM's.
+    /**
+     * WLCM states are a one-way ladder. A state we do not model has no rung and is
+     * admitted rather than refused — the ladder is our model of WLCM's, not WLCM's, and
+     * WLCM has been seen emitting states its own docs omit.
+     *
+     * It must not be a way back OUT of a settled row, though. Admitting one from a
+     * terminal rung parked the row on the unmodelled state, from which every modelled
+     * state read as an advance — so a replay of the success re-dispatched the money
+     * event. "Never refused" loses to "a terminal row accepts only a cancel" here.
+     */
     private static function advances(?int $from, int $to): bool
     {
-        return self::rung($to) < 0 || self::rung($to) > self::rung($from);
+        return self::rung($to) < 0
+            ? self::rung($from) < self::TERMINAL_RUNG
+            : self::rung($to) > self::rung($from);
     }
 
     private static function rung(?int $state): int

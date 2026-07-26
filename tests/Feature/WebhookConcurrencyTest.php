@@ -133,6 +133,47 @@ final class WebhookConcurrencyTest extends TestCase
         $this->assertSame(WebhookOutcome::Stale, $store->applyWebhook($this->payload('0'), 'tok-c'));
     }
 
+    /**
+     * WLCM has been observed emitting states its own docs do not list. Admitting one
+     * unconditionally let it walk a settled payment back off its terminal rung, and the
+     * money state could then be dispatched all over again.
+     */
+    public function test_an_unmodelled_state_cannot_reopen_a_terminal_row(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+        $store->markProcessed($this->payload('2'), 'tok-a');
+
+        $this->assertSame(WebhookOutcome::Stale, $store->applyWebhook($this->payload('7'), 'tok-b'));
+        $this->assertSame(WebhookOutcome::Duplicate, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    public function test_a_replay_through_an_unmodelled_state_cannot_re_fire_the_money_event(): void
+    {
+        $succeeded = 0;
+        Event::listen(PaymentSucceeded::class, function () use (&$succeeded): void {
+            $succeeded++;
+        });
+
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+        $this->postJson('/wlcm/webhook', $this->signed('7'))->assertOk();
+        // The replay the freshness window explicitly permits.
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+
+        $this->assertSame(1, $succeeded, 'one payment dispatched PaymentSucceeded twice');
+    }
+
+    // The ladder must still not refuse states we do not model — only stop them being a
+    // way back out of a settled row.
+    public function test_an_unmodelled_state_still_advances_a_live_row(): void
+    {
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('0'), 'tok-a'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('7'), 'tok-b'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
     public function test_a_hard_killed_claim_is_only_retaken_after_the_lease(): void
     {
         $store = app(TransactionStore::class);
