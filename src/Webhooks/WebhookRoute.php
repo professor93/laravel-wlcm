@@ -201,17 +201,22 @@ final class WebhookRoute
      */
     private static function probes(mixed $configuredPath, array $connections): array
     {
-        $path = '/'.self::path($configuredPath);
+        // BOTH inputs are encoded, and the encoding is REQUIRED, not cosmetic — do not
+        // simplify it away. `Request::create()` refuses a URI holding a TAB/CR/LF, or a
+        // segment starting or ending with a space, and that throw comes out of the watch and
+        // takes the boot with it. Routes register with such values perfectly well, so the
+        // brick would be ours alone. The configured PATH needs it as much as the connection
+        // name did: `path()` trims only the ends, so an interior control character out of a
+        // CRLF `.env` or a wiki paste survives. Encoding also makes a non-ASCII value
+        // probeable at all, which it was not.
+        //
+        // Segment by segment, because the separators must stay separators; `UriValidator`
+        // rawurldecodes before matching, so encode-in/decode-out is identity for the matcher,
+        // and it is what a real client sends.
+        $path = '/'.self::encodeSegments(self::path($configuredPath));
 
         $paths = [$path];
 
-        // rawurlencode is REQUIRED, not cosmetic — do not simplify it away. `Request::create()`
-        // refuses a URI whose segment starts or ends with a space or holds a TAB/CR/LF, and
-        // that throw comes out of the watch and takes the boot with it; the route compiles with
-        // such a name perfectly well, so the brick would be ours alone. Encoding also makes a
-        // non-ASCII name probeable at all, which it was not: `UriValidator` rawurldecodes
-        // before matching, so encode-in/decode-out is identity for the matcher, and it is what
-        // a real client sends — a raw space or CR/LF cannot appear in a request line.
         foreach ($connections as $connection) {
             $paths[] = $path.'/'.rawurlencode($connection);
         }
@@ -227,7 +232,14 @@ final class WebhookRoute
         return $probes;
     }
 
-    // Which of RouteCollection's two tables the route lives in.
+    /** Percent-encode each segment while leaving the separators alone. */
+    private static function encodeSegments(string $path): string
+    {
+        return implode('/', array_map(rawurlencode(...), explode('/', $path)));
+    }
+
+    // Which table of RouteCollection's four the route lives in: `addToCollections()` files a
+    // route by domain truthiness, into domainRoutes/allDomainRoutes or routes/allRoutes.
     private static function isDomained(Route $route): bool
     {
         return (bool) $route->getDomain();

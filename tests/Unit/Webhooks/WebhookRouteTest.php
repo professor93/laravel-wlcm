@@ -377,6 +377,39 @@ final class WebhookRouteTest extends TestCase
         );
     }
 
+    /**
+     * @return array<string, array{string}>
+     *
+     * The OTHER input that reaches `Request::create()`. Encoding the connection segment left
+     * this one raw, and `path()` trims only the ENDS, so an interior control character
+     * survives — a `WLCM_WEBHOOK_PATH` carrying a tab or CR from a wiki paste or a CRLF
+     * `.env`. The route registers with such a path perfectly well, so the brick is the
+     * watch's alone, which is the same sentence the connection-segment fix was written for.
+     */
+    public static function configuredPathsThatMustNotBrick(): array
+    {
+        return [
+            'plain' => ['wlcm/webhook'],
+            'inner space' => ['wlcm/web hook'],
+            'inner tab' => ["wlcm/web\thook"],
+            'inner cr' => ["wlcm/web\rhook"],
+            'inner lf' => ["wlcm/web\nhook"],
+            'non-ascii' => ['wlcm/веб'],
+        ];
+    }
+
+    #[DataProvider('configuredPathsThatMustNotBrick')]
+    public function test_a_configured_path_never_takes_the_boot_down(string $configured): void
+    {
+        $router = $this->router();
+        $router->post(WebhookRoute::uri($configured), 'H@h')->name('host.bare');
+
+        $this->assertNotNull(
+            WebhookRoute::shadow($router, $configured, [self::CONNECTION]),
+            'the probe for this configured path never reached the matcher',
+        );
+    }
+
     /** Who answers the delivery, decided by the same matcher dispatch uses. */
     private function serves(Router $router, string $url): string
     {

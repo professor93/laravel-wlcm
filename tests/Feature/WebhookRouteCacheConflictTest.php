@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Feature;
 
+use ErrorException;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -225,6 +226,48 @@ final class WebhookRouteCacheConflictTest extends TestCase
         );
     }
 
+    /**
+     * THE WATCH MAY NEVER BE THE THING THAT TAKES THE APP DOWN, which is what the guard's
+     * comment has always claimed while `shadow()` ran outside it. `shadow()` builds requests,
+     * compiles a throwaway route per host POST route and runs preg_match over all of them.
+     *
+     * A connection name ending in `$` reaches the third surface: `preg_quote()` escapes it to
+     * `\$`, and `symfony/routing/Route.php:456-457` strips a trailing `$` from a requirement
+     * WITHOUT checking whether it is escaped, leaving a dangling backslash that fails to
+     * compile when `preg_match` runs it. Encoding the inputs cannot help here — the value is
+     * legal in a URI and breaks in the regex — so only the guard keeps the app alive.
+     */
+    public function test_a_watch_that_throws_does_not_take_the_boot_down(): void
+    {
+        // `preg_match` WARNS and returns false rather than throwing, so the failure only
+        // becomes an exception because `HandleExceptions:71-78` promotes warnings — which
+        // every booted Laravel app does and this cut-down harness does not. Installing the
+        // same promotion is what makes the test reproduce production rather than a quieter
+        // version of it; without it `shadow()` returns null silently and the guard is never
+        // reached.
+        set_error_handler(static function (int $severity, string $message, string $file = '', int $line = 0): never {
+            throw new ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        try {
+            [$app, $reported] = $this->bootApplication(connections: ['main', 'bad$']);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertTrue($app->isBooted(), 'the watch took the boot down');
+        $this->assertSame([], $this->conflicts($reported), 'a failed watch reported a conflict it never established');
+        // ONCE, not twice: both watch points run and both hit the same broken requirement,
+        // so the failure latches exactly as the conflict report does. Two latches rather than
+        // one, deliberately — sharing them would let a failure at the first point suppress a
+        // genuine conflict found at the second.
+        $this->assertCount(
+            1,
+            $reported->reported,
+            'the watch died silently, or said so once per watch point',
+        );
+    }
+
     /** @param callable(RouteCollection): void $define */
     private function bakeCachedRoutes(callable $define): void
     {
@@ -252,9 +295,10 @@ final class WebhookRouteCacheConflictTest extends TestCase
      * @param  (callable(Application): void)|null  $beforeBoot  Runs after the container is
      *                                                          wired and before providers boot.
      * @param  class-string|null  $alsoRegister  A host provider, registered after ours.
+     * @param  list<string>  $connections  Configured connection names.
      * @return array{Application, RecordingExceptionHandler}
      */
-    private function bootApplication(bool $registerPackage = true, ?callable $beforeBoot = null, ?string $alsoRegister = null): array
+    private function bootApplication(bool $registerPackage = true, ?callable $beforeBoot = null, ?string $alsoRegister = null, array $connections = ['main']): array
     {
         $app = new Application($this->base);
 
@@ -267,7 +311,7 @@ final class WebhookRouteCacheConflictTest extends TestCase
 
         $app->instance('config', new Repository([
             'wlcm' => [
-                'connections' => ['main' => ['partner' => ['webhook_secret' => 'whsec_test']]],
+                'connections' => array_fill_keys($connections, ['partner' => ['webhook_secret' => 'whsec_test']]),
             ],
         ]));
 

@@ -145,24 +145,57 @@ final class WlcmServiceProvider extends ServiceProvider
         // On the REPORT, not on the check: a point that saw no table has to leave the next
         // one free to look again.
         $reported = false;
+        $failed = false;
 
-        $watch = function () use (&$reported, $router, $path, $connections, $uri): void {
-            if ($reported || WebhookRoute::shadow($router, $path, $connections) === null) {
+        $watch = function () use (&$reported, &$failed, $router, $path, $connections, $uri): void {
+            if ($reported) {
+                return;
+            }
+
+            // THE WHOLE CHECK IS GUARDED, not just the report. The comment below used to sit
+            // above `report()` alone while `shadow()` ran outside it — and `shadow()` builds
+            // requests, constructs and compiles a throwaway route per host POST route, and
+            // runs preg_match over all of them. Three surfaces that throw on pathological
+            // config, each of which took the boot with it. Encoding the inputs closes the
+            // instances known today; this closes the class.
+            //
+            // The failure is reported rather than swallowed, once: a watch that died is a
+            // watch that is not watching, and this range has paid for enough silent guards.
+            try {
+                $shadow = WebhookRoute::shadow($router, $path, $connections);
+            } catch (Throwable $e) {
+                if (! $failed) {
+                    $failed = true;
+                    self::reportQuietly($e);
+                }
+
+                return;
+            }
+
+            if ($shadow === null) {
                 return;
             }
 
             $reported = true;
 
-            // Guarded: report() runs the host's handler, and a diagnostic may never be
-            // the thing that takes a request down.
-            try {
-                report(WebhookRouteConflictException::forUri($uri));
-            } catch (Throwable) {
-                //
-            }
+            self::reportQuietly(WebhookRouteConflictException::forUri($uri));
         };
 
         $app->booted($watch);
         $app->afterBootstrapping(BootProviders::class, $watch);
+    }
+
+    /**
+     * report() runs the host's handler, which can throw — an unwritable destination takes the
+     * default channel down with the audit sink. A diagnostic may never be the thing that takes
+     * a request down, so nothing here reaches the caller.
+     */
+    private static function reportQuietly(Throwable $e): void
+    {
+        try {
+            report($e);
+        } catch (Throwable) {
+            //
+        }
     }
 }
