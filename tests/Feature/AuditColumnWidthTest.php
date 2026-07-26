@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
+use Throwable;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
@@ -220,35 +221,68 @@ final class AuditColumnWidthTest extends TestCase
     }
 
     /**
-     * Mysql rejects a json document over 100 levels deep and the audit write is swallowed,
-     * so a delivery that dispatched and fired its events left NO log row — while postgres
-     * stored the same body without complaint. Payload shape alone decided whether a
-     * dispatched delivery was auditable.
-     */
-    /**
      * A body can contain `_wlcm` and `body` itself, so the marker is not self-certifying.
-     * What distinguishes a forgery is the SHAPE: a genuine reshape replaces the blob
-     * entirely, while a delivery that mimics the marker still has to carry the signed
-     * fields or it would never have verified. Renaming the key in `3469d73` did not fix
-     * this and never could have.
+     * What distinguishes a forgery is the SHAPE — but only on `request_body`, and only
+     * because an inbound delivery has to carry the fields it was verified over or it never
+     * reaches the store at all. Five required fields cannot be squeezed into two keys.
+     *
+     * The witness is the required fields, NOT the signature: Masker drops `signature`
+     * outright, so it is absent from every stored blob and proves nothing here.
+     * Renaming the key in `3469d73` did not fix this and never could have.
+     *
+     * The sibling test below is the other half: on `response_body` the same argument is
+     * FALSE, and the two must be read together.
      */
-    public function test_a_mimicked_reshape_marker_is_distinguishable(): void
+    public function test_an_inbound_delivery_cannot_forge_the_reshape_shape(): void
+    {
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+            '_wlcm' => ['reshaped' => 'depth'], 'body' => 'attacker supplied',
+        ];
+        $data['signature'] = hash_hmac('sha256', '1254:7788:2:2026-07-24 12:00:00', 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+
+        $keys = array_keys(WlcmLog::query()->where('direction', 'webhook')->sole()->request_body ?? []);
+        sort($keys);
+        // Every required field is still in there beside the mimicked marker, so it is not
+        // the exclusive two-key shape a genuine reshape produces.
+        foreach (['amount', 'order_id', 'payment_id', 'state', 'timestamp'] as $required) {
+            $this->assertContains($required, $keys);
+        }
+
+        $this->assertNotSame(['_wlcm', 'body'], $keys, 'a mimicked marker was indistinguishable');
+    }
+
+    /**
+     * DO NOT DELETE, and do not "fix" it into the assertion above.
+     *
+     * The exclusive-shape argument does NOT extend to `response_body`. A server response
+     * carries no required fields and no signature, so nothing stops it being byte-for-byte
+     * the shape a genuine depth reshape produces — proved here rather than assumed. The
+     * claim was originally stated over both columns; it was only ever true of one.
+     */
+    public function test_an_outbound_response_can_forge_the_reshape_shape(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
-            'order_id' => 1254, 'state' => 1,
-            '_wlcm' => ['reshaped' => 'depth'], 'body' => 'attacker supplied',
+            '_wlcm' => ['reshaped' => 'depth'], 'body' => 'forged, not reshaped',
         ], 201)]);
 
-        Wlcm::partner()->checkout()->create(
-            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
-        );
+        try {
+            Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-9');
+        } catch (Throwable) {
+            // Hydration rejects the malformed success body — after the audit write, which
+            // is the row under test.
+        }
 
-        $keys = array_keys(WlcmLog::sole()->response_body ?? []);
-        sort($keys);
-        // Carries the real fields alongside the mimicked marker, so it is not the
-        // exclusive two-key shape a genuine reshape produces.
-        $this->assertSame(['_wlcm', 'body', 'order_id', 'state'], $keys);
-        $this->assertNotSame(['_wlcm', 'body'], $keys, 'a mimicked marker was indistinguishable');
+        $stored = WlcmLog::sole()->response_body;
+
+        $this->assertSame(['_wlcm', 'body'], array_keys($stored ?? []));
+        $this->assertSame(['reshaped' => 'depth'], $stored['_wlcm'] ?? null);
+        // Not a reshape: the body was two levels deep. Indistinguishable all the same.
+        $this->assertSame('forged, not reshaped', $stored['body'] ?? null);
     }
 
     public function test_a_very_deep_body_still_lands_an_audit_row(): void
@@ -268,10 +302,11 @@ final class AuditColumnWidthTest extends TestCase
 
         $log = WlcmLog::sole();
         $this->assertIsArray($log->response_body);
-        // The marker is trustworthy only because the reshape REPLACES the body: a genuine
-        // reshaped blob is exactly these two keys. A forged one cannot be, since it must
-        // still carry the signed fields to verify at all. Assert the exclusive key set,
-        // not just the marker's presence — the marker alone is copyable.
+        // The reshape REPLACES the body: a genuine reshaped blob is exactly these two
+        // keys. Assert the exclusive key set, not just the marker's presence — the marker
+        // alone is copyable. On THIS column the shape is copyable too (see the outbound
+        // forgery test above); what is asserted here is only that a real reshape produces
+        // it, which is what the reader of a `_wlcm` marker needs to know.
         $this->assertSame(['_wlcm', 'body'], array_keys($log->response_body ?? []), 'the reshape is not exclusive');
         $this->assertSame(['reshaped' => 'depth'], $log->response_body['_wlcm'] ?? null, 'the reshape was not recorded');
         // Nothing discarded — the whole body is still there, encoded.
