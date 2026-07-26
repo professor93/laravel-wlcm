@@ -7,6 +7,8 @@ namespace Uzbek\Wlcm\Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Uzbek\Wlcm\Events\PaymentSucceeded;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
@@ -75,6 +77,38 @@ final class ServerIdFidelityTest extends TestCase
 
         $this->assertSame('ORD-KEEPME', WlcmLog::sole()->external_id, 'an empty event nulled the audit correlation');
         $this->assertSame('ORD-KEEPME', WlcmTransaction::sole()->external_id);
+    }
+
+    /**
+     * A malformed amount that is not negative throws out of `Tiyin::fromSumString` inside
+     * the claim, before any log write and outside the controller's try. The delivery 500s
+     * and leaves NO trace at all — and WLCM does not retry. The missing audit row is the
+     * defect more than the status code, so that is what this asserts.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function malformedAmounts(): array
+    {
+        return [
+            'three decimals' => ['10.000'],
+            'thousands separator' => ['1,000.00'],
+            'seventeen digit whole' => ['12345678901234567.00'],
+            'exponent' => ['1.0E+25'],
+            'not a number' => ['abc'],
+        ];
+    }
+
+    #[DataProvider('malformedAmounts')]
+    public function test_a_malformed_amount_is_refused_with_an_audit_trail(string $amount): void
+    {
+        Event::fake();
+        $data = $this->webhookData(self::PAYMENT_A);
+        $data['amount'] = $amount;
+
+        $this->postJson('/wlcm/webhook', $data)->assertStatus(422);
+
+        Event::assertNotDispatched(PaymentSucceeded::class);
+        $this->assertSame(0, WlcmTransaction::query()->count(), 'a refused delivery left a claim row');
     }
 
     public function test_two_luhn_coincident_payment_ids_stay_two_transactions(): void

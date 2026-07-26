@@ -215,6 +215,32 @@ final class AuditColumnWidthTest extends TestCase
      * stored the same body without complaint. Payload shape alone decided whether a
      * dispatched delivery was auditable.
      */
+    /**
+     * A body can contain `_wlcm` and `body` itself, so the marker is not self-certifying.
+     * What distinguishes a forgery is the SHAPE: a genuine reshape replaces the blob
+     * entirely, while a delivery that mimics the marker still has to carry the signed
+     * fields or it would never have verified. Renaming the key in `3469d73` did not fix
+     * this and never could have.
+     */
+    public function test_a_mimicked_reshape_marker_is_distinguishable(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 1,
+            '_wlcm' => ['reshaped' => 'depth'], 'body' => 'attacker supplied',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
+        );
+
+        $keys = array_keys(WlcmLog::sole()->response_body ?? []);
+        sort($keys);
+        // Carries the real fields alongside the mimicked marker, so it is not the
+        // exclusive two-key shape a genuine reshape produces.
+        $this->assertSame(['_wlcm', 'body', 'order_id', 'state'], $keys);
+        $this->assertNotSame(['_wlcm', 'body'], $keys, 'a mimicked marker was indistinguishable');
+    }
+
     public function test_a_very_deep_body_still_lands_an_audit_row(): void
     {
         $deep = 'leaf';
@@ -232,6 +258,11 @@ final class AuditColumnWidthTest extends TestCase
 
         $log = WlcmLog::sole();
         $this->assertIsArray($log->response_body);
+        // The marker is trustworthy only because the reshape REPLACES the body: a genuine
+        // reshaped blob is exactly these two keys. A forged one cannot be, since it must
+        // still carry the signed fields to verify at all. Assert the exclusive key set,
+        // not just the marker's presence — the marker alone is copyable.
+        $this->assertSame(['_wlcm', 'body'], array_keys($log->response_body ?? []), 'the reshape is not exclusive');
         $this->assertSame(['reshaped' => 'depth'], $log->response_body['_wlcm'] ?? null, 'the reshape was not recorded');
         // Nothing discarded — the whole body is still there, encoded.
         $encoded = $log->response_body['body'] ?? '';

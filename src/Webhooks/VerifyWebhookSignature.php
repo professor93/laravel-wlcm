@@ -9,8 +9,10 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Symfony\Component\HttpFoundation\Response;
+use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Support\ConnectionConfig;
+use Uzbek\Wlcm\Support\Tiyin;
 
 /**
  * @phpstan-import-type WebhookPayloadShape from WebhookPayload
@@ -151,8 +153,21 @@ final readonly class VerifyWebhookSignature
         // corrected money value is worse than a delivery someone can be asked to resend.
         $amount = $data['amount'] ?? null;
 
-        if (! $isSubscription && is_scalar($amount) && str_starts_with(ltrim((string) $amount), '-')) {
-            abort(422, 'Invalid field: amount');
+        if (! $isSubscription && is_scalar($amount)) {
+            if (str_starts_with(ltrim((string) $amount), '-')) {
+                abort(422, 'Invalid field: amount');
+            }
+
+            // Same place, same answer, one mechanism. A malformed non-negative amount used
+            // to throw out of Tiyin inside the claim — before any log write and outside the
+            // controller's try — so the delivery 500d with ZERO audit rows on a delivery
+            // WLCM does not retry. Asking the parser rather than writing a second rule
+            // means the guard cannot drift from what the DTO will actually accept.
+            try {
+                Tiyin::fromSumString((string) $amount);
+            } catch (InvalidAmountException) {
+                abort(422, 'Invalid field: amount');
+            }
         }
 
         $signature = $data['signature'] ?? null;
