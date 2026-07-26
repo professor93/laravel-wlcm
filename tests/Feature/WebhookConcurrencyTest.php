@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Tests\Feature;
 
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -23,6 +24,7 @@ use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
 use Uzbek\Wlcm\Tests\TestCase;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
+use Uzbek\Wlcm\Webhooks\WebhookController;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 use Uzbek\Wlcm\Webhooks\WlcmWebhookHandler;
 
@@ -511,6 +513,23 @@ final class WebhookConcurrencyTest extends TestCase
 
         $results = WlcmLog::query()->orderBy('id')->pluck('result')->all();
         $this->assertSame(['ok', 'failed'], $results, 'a 500ed delivery is still described as ok');
+    }
+
+    /**
+     * A missing `wlcm_payload` already fails loudly. `wlcm_data` defaulted to `[]`, so the
+     * same mistake dispatched the delivery, wrote the transaction row, and emptied only
+     * the audit trail — the exact class of silent failure this range keeps producing. It
+     * bit the harness within an hour of shipping.
+     */
+    public function test_a_controller_invoked_without_the_verified_document_fails_loudly(): void
+    {
+        $request = Request::create('/wlcm/webhook', 'POST', [], [], [], [], (string) json_encode($this->signed('2')));
+        $request->attributes->set('wlcm_payload', $this->payload('2'));
+        // wlcm_data deliberately not set, exactly as a direct caller would leave it.
+
+        $this->expectException(MissingConfigurationException::class);
+
+        app(WebhookController::class)($request);
     }
 
     public function test_an_empty_required_field_is_refused_before_any_row_exists(): void

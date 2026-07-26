@@ -80,7 +80,13 @@ final class Masker
             // json_each_text all raise 22P05, which is the error the strip exists to stop.
             if (is_string($key) && str_contains($key, "\0")) {
                 unset($data[$key]);
-                $key = str_replace("\0", '', $key);
+                $stripped = str_replace("\0", '', $key);
+                // Keep-first. Stripping can collapse `note\0hidden` onto an innocent
+                // `notehidden`, and letting the NUL-bearing one win would silently
+                // overwrite the honest key — the audit trail losing a field is the thing
+                // we are here to prevent. The loser is suffixed rather than dropped, so
+                // nothing disappears and the collision is visible in the row itself.
+                $key = array_key_exists($stripped, $data) ? $stripped.'~1' : $stripped;
             }
 
             $data[$key] = match (true) {

@@ -40,8 +40,19 @@ final readonly class WebhookController
         // Same bytes the signature was verified over. Re-reading the request here would
         // reintroduce the split: under a non-JSON encoding $request->all() is the query
         // string, so the blob and ids would describe a document nobody authenticated.
+        //
+        // No default. Absent means the middleware did not run, and defaulting to [] made
+        // that fail SILENTLY — the delivery still dispatched and still wrote its
+        // transaction row, and only the audit trail came out empty. A missing payload
+        // already fails loudly; this must too, or the one thing that goes quiet is the
+        // record of what happened.
+        $raw = $request->attributes->get('wlcm_data');
+
+        if (! is_array($raw)) {
+            throw MissingConfigurationException::forKey('wlcm.webhook route middleware');
+        }
+
         /** @var array<string, mixed> $raw */
-        $raw = (array) $request->attributes->get('wlcm_data', []);
         /** @var array<string, mixed> $requestData */
         $requestData = Masker::scrubProse(Masker::mask($raw));
         // Blob keeps the whole-body scrub; correlation columns come off the raw delivery,

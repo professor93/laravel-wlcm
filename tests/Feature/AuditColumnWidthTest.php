@@ -130,6 +130,27 @@ final class AuditColumnWidthTest extends TestCase
      * the base covers four fields. On pgsql a NUL in a key makes `request_body::jsonb`,
      * `->>` and `json_each_text` all raise 22P05, the exact error the strip prevents.
      */
+    /**
+     * Stripping can collapse a NUL-bearing key onto an innocent one. Letting the stripped
+     * key win would silently overwrite an honest field, which is the audit loss the strip
+     * exists to prevent — so the first key stands and the collider is kept beside it.
+     */
+    public function test_a_collapsing_key_does_not_overwrite_an_innocent_one(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 1, 'notehidden' => 'innocent', "note\0hidden" => 'collider',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
+        );
+
+        $body = WlcmLog::sole()->response_body;
+        $this->assertIsArray($body);
+        $this->assertSame('innocent', $body['notehidden'] ?? null, 'the innocent key was overwritten');
+        $this->assertSame('collider', $body['notehidden~1'] ?? null, 'the collider was dropped');
+    }
+
     public function test_a_nul_byte_in_an_object_key_cannot_reach_the_blob(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
