@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Webhooks;
 
 use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
+use Exception;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -236,6 +239,16 @@ final readonly class VerifyWebhookSignature
     // Deliveries carry ms-epoch timestamps; tolerate s-epoch and datetime strings.
     private static function parseTimestamp(string $timestamp): ?int
     {
+        // Self-contained, reusing the guard's own constant rather than trusting the caller
+        // to have run it. strtotime() failed CLOSED on anything it could not read; the
+        // DateTimeImmutable below fails OPEN — `''` and `'now'` both parse as the current
+        // instant, which is a delivery that is always fresh. The caller does check the
+        // shape first, but a freshness check that holds only because a neighbour catches
+        // the leftovers is not a check.
+        if (preg_match(self::TIMESTAMP_SHAPE, $timestamp) !== 1) {
+            return null;
+        }
+
         if (preg_match('/^\d{13}$/', $timestamp) === 1) {
             return intdiv((int) $timestamp, 1000);
         }
@@ -244,8 +257,20 @@ final readonly class VerifyWebhookSignature
             return (int) $timestamp;
         }
 
-        $parsed = strtotime($timestamp);
-
-        return $parsed === false ? null : $parsed;
+        // UTC as the FALLBACK zone, not as an override. DateTimeImmutable applies the
+        // given zone only when the string carries none of its own, so `Z` and `+05:00`
+        // keep reading their own offset while a bare `2026-07-24 12:00:00` — what WLCM
+        // actually sends — is finally read as the UTC it is.
+        //
+        // strtotime() resolved that bare form in the APP's timezone, so a host at +5 saw
+        // every delivery five hours out and 403'd it. No tolerance_seconds a merchant
+        // would set absorbs a whole UTC offset, so the delivery was simply lost. Same
+        // class as the claim-window bug: two instants compared that were never on one
+        // clock, fixed by naming the clock instead of inheriting it.
+        try {
+            return (new DateTimeImmutable($timestamp, new DateTimeZone('UTC')))->getTimestamp();
+        } catch (Exception) {
+            return null;
+        }
     }
 }
