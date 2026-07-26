@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
@@ -131,15 +132,32 @@ final class AuditColumnWidthTest extends TestCase
      * `->>` and `json_each_text` all raise 22P05, the exact error the strip prevents.
      */
     /**
-     * Stripping can collapse a NUL-bearing key onto an innocent one. Letting the stripped
-     * key win would silently overwrite an honest field, which is the audit loss the strip
-     * exists to prevent — so the first key stands and the collider is kept beside it.
+     * Measured, not argued — the suffix scheme this replaces lost one field at arity 3,
+     * two at arity 4, and overwrote a merchant key literally named `notehidden~1`. Each
+     * row asserts the OUTPUT KEY COUNT equals the input count, which is the property that
+     * makes this not a deletion primitive.
+     *
+     * @return array<string, array{array<string, string>, int}>
      */
-    public function test_a_collapsing_key_does_not_overwrite_an_innocent_one(): void
+    public static function collidingKeySets(): array
     {
-        Http::fake(['api.wlcm.test/*' => Http::response([
-            'order_id' => 1254, 'state' => 1, 'notehidden' => 'innocent', "note\0hidden" => 'collider',
-        ], 201)]);
+        return [
+            'arity 1' => [["note\0hidden" => 'A'], 1],
+            'arity 2' => [['notehidden' => 'innocent', "note\0hidden" => 'A'], 2],
+            'arity 3' => [["note\0hidden" => 'A', "noteh\0idden" => 'B', "notehi\0dden" => 'C'], 3],
+            'arity 4' => [['notehidden' => 'i', "note\0hidden" => 'A', "noteh\0idden" => 'B', "notehi\0dden" => 'C'], 4],
+            'pre-existing suffix' => [['notehidden' => 'x', 'notehidden~1' => 'MERCHANT', "note\0hidden" => 'NUL'], 3],
+            'literal percent' => [['100%' => 'a', "100\0" => 'b'], 2],
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $keys
+     */
+    #[DataProvider('collidingKeySets')]
+    public function test_no_key_set_loses_a_field(array $keys, int $expected): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1254, 'state' => 1] + $keys, 201)]);
 
         Wlcm::partner()->checkout()->create(
             amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'ORD-9',
@@ -147,8 +165,15 @@ final class AuditColumnWidthTest extends TestCase
 
         $body = WlcmLog::sole()->response_body;
         $this->assertIsArray($body);
-        $this->assertSame('innocent', $body['notehidden'] ?? null, 'the innocent key was overwritten');
-        $this->assertSame('collider', $body['notehidden~1'] ?? null, 'the collider was dropped');
+        unset($body['order_id'], $body['state']);
+
+        $this->assertCount($expected, $body, 'a field was lost or overwritten');
+        $this->assertStringNotContainsString('\u0000', (string) json_encode($body));
+
+        // A merchant key keeps its own name; nothing is rewritten onto it.
+        if (array_key_exists('notehidden~1', $keys)) {
+            $this->assertSame('MERCHANT', $body['notehidden~1'] ?? null, 'a merchant key was overwritten');
+        }
     }
 
     public function test_a_nul_byte_in_an_object_key_cannot_reach_the_blob(): void

@@ -78,15 +78,13 @@ final class Masker
             // can add any extra key it likes — only four fields are in the base — so
             // `note\0hidden` reached the blob and made pgsql's ::jsonb, ->> and
             // json_each_text all raise 22P05, which is the error the strip exists to stop.
-            if (is_string($key) && str_contains($key, "\0")) {
-                unset($data[$key]);
-                $stripped = str_replace("\0", '', $key);
-                // Keep-first. Stripping can collapse `note\0hidden` onto an innocent
-                // `notehidden`, and letting the NUL-bearing one win would silently
-                // overwrite the honest key — the audit trail losing a field is the thing
-                // we are here to prevent. The loser is suffixed rather than dropped, so
-                // nothing disappears and the collision is visible in the row itself.
-                $key = array_key_exists($stripped, $data) ? $stripped.'~1' : $stripped;
+            if (is_string($key)) {
+                $encoded = self::encodeKey($key);
+
+                if ($encoded !== $key) {
+                    unset($data[$key]);
+                    $key = $encoded;
+                }
             }
 
             $data[$key] = match (true) {
@@ -98,6 +96,27 @@ final class Masker
         }
 
         return $data;
+    }
+
+    /**
+     * Percent-escape `%` and NUL in an object key, injectively.
+     *
+     * A key cannot carry a raw NUL: postgres errors on any json access to the row
+     * (22P05) and mysql stores it, so the two engines disagree about what a delivery
+     * said. Simply stripping it collapsed distinct keys together — measured at arity 3
+     * one field vanished, at arity 4 two did, and a merchant key literally named
+     * `foo~1` was overwritten by the suffix scheme meant to prevent exactly that. An
+     * audit trail that can be made to drop a chosen field with one captured signature
+     * is a deletion primitive, not a cosmetic issue.
+     *
+     * Escaping the escape first is what makes this injective rather than merely
+     * unlikely to clash: distinct inputs cannot share an output, at any arity, and no
+     * rewritten key can land on an untouched one. The cost is that a key containing a
+     * literal `%` is rewritten too — visible and reversible, unlike losing it.
+     */
+    private static function encodeKey(string $key): string
+    {
+        return str_replace("\0", '%00', str_replace('%', '%25', $key));
     }
 
     public static function scrubPans(string $text): string
