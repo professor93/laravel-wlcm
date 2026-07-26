@@ -410,6 +410,30 @@ final class WebhookRouteTest extends TestCase
         );
     }
 
+    /**
+     * THE MISSING `break` IS LOAD-BEARING. Making the two passes symmetric is the most
+     * tempting refactor in the file and it passes every other test: a domained route answers
+     * only on its own host, so a VERIFYING one on `admin.example.com` says nothing whatever
+     * about an unverified one on `api.example.com`, which is where WLCM actually delivers.
+     * Breaking on the first capture would stop at the admin route and report nothing.
+     */
+    public function test_a_verified_domained_route_does_not_end_the_domained_pass(): void
+    {
+        $router = $this->router();
+        $uri = WebhookRoute::uri(self::PATH);
+
+        $router->domain('admin.example.com')->post($uri, 'H@h')
+            ->middleware(VerifyWebhookSignature::class)->name('host.admin');
+        $router->domain('api.example.com')->post($uri, 'H@h')->name('host.api');
+        $this->registerOurs($router, [self::CONNECTION]);
+
+        $this->assertSame('host-unverified', $this->serves($router, 'http://api.example.com/wlcm/webhook/main'));
+        $this->assertNotNull(
+            WebhookRoute::shadow($router, self::PATH, [self::CONNECTION]),
+            'a verifying route on one host silenced an unverified route on another',
+        );
+    }
+
     /** Who answers the delivery, decided by the same matcher dispatch uses. */
     private function serves(Router $router, string $url): string
     {
