@@ -32,6 +32,13 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Fixed split amounts ship as SUM by default — the server compares fixed totals against the payment's SUM value, though the docs claim tiyin
 - A failed subscription charge is HTTP 200 data, never an exception — guard every charge with `SubscriptionChargeResult::succeeded()`
 
+### Documented
+- A late `LogStore`/`TransactionStore` rebind is ignored outbound but honoured inbound, so it splits the audit trail across two sinks. The README claimed the outbound behaviour for both paths
+- A rebound `TransactionStore` does not get the inbound half of the caller-transaction guard, which lives at claim time in the shipped recorder
+- `processed_at` marks the end of the request, not the end of a queued listener. A queue that never drains leaves the payment marked processed and every redelivery answered `duplicate`
+- `php artisan config:cache` freezes `env()`, so rotating a webhook secret in `.env` alone is inert — the old baked secret keeps verifying while the new one 403s. `route:cache` reads the cached config, so rebuilding routes without rebuilding config bakes a stale `wlcm.webhook.path`
+- Why there is no per-write driver dispatcher for `storage.logs`, and what building one would cost
+
 ### Fixed
 - Malformed success responses throw instead of hydrating into zeroed DTOs; non-array split rows are dropped rather than zeroed
 - Amounts are validated end to end — non-positive, non-integer, indivisible and oversized values throw instead of shipping the wrong number
