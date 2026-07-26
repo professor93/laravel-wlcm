@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Throwable;
 use Uzbek\Wlcm\Exceptions\WebhookRouteConflictException;
+use Uzbek\Wlcm\Tests\Fixtures\CountingRouteCollection;
 use Uzbek\Wlcm\Tests\Fixtures\RecordingExceptionHandler;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookRoute;
@@ -137,21 +138,43 @@ final class WebhookRouteCacheConflictTest extends TestCase
     }
 
     /**
-     * Two watch points, one report. Without a table to inspect the first point has to stay
-     * silent and leave the second free to look, so the guard cannot be a check-once — which
-     * makes it a report-once instead, and this is the row that pins that down: an uncached
-     * app reaches BOTH points with the same shadow in front of it.
+     * Two watch points, ONE report. Without a table to inspect the first point has to stay
+     * silent and leave the second free to look, so the guard cannot latch on the check — it
+     * latches on the report. This is the shape that reaches both with a shadow in front of
+     * each: routes are cached, AND a host route is registered directly on the router before
+     * boot, so the first point sees that one and the second sees the baked one.
      */
-    public function test_a_shadow_an_uncached_app_reaches_from_both_watch_points_is_reported_once(): void
+    public function test_a_shadow_both_watch_points_can_see_is_reported_once(): void
     {
-        [$app, $reported] = $this->bootApplication(registerPackage: false);
+        $this->bakeCachedRoutes(function (RouteCollection $routes): void {
+            $routes->add(new Route('POST', WebhookRoute::uri('wlcm/webhook'), ['uses' => 'HostController@handle']))
+                ->name('host.collision');
+        });
 
-        $app->make(Router::class)->post('wlcm/webhook/{connection}', 'HostController@handle');
-        $app->register(WlcmServiceProvider::class);
-        $app->bootstrapWith([BootProviders::class]);
+        [$app, $reported] = $this->bootApplication(beforeBoot: function (Application $app): void {
+            $app->make(Router::class)->post(WebhookRoute::uri('wlcm/webhook'), 'HostController@handle');
+        });
+
+        $this->assertTrue($app->routesAreCached());
+        $this->assertCount(1, $this->conflicts($reported), 'one shadow, two watch points, more than one report');
+    }
+
+    /**
+     * THE BOOT BUDGET, pinned because it is not free: `shadow()` asks the collection for the
+     * POST table exactly once per pass, so this counts passes. With no route cache the table
+     * is already final at booted(), and a second pass would cost every merchant who has no
+     * conflict at all a full extra scan on every boot to buy nothing.
+     */
+    public function test_an_uncached_boot_scans_the_post_table_once(): void
+    {
+        $counting = new CountingRouteCollection;
+
+        [$app] = $this->bootApplication(beforeBoot: function (Application $app) use ($counting): void {
+            $app->make(Router::class)->setRoutes($counting);
+        });
 
         $this->assertFalse($app->routesAreCached());
-        $this->assertCount(1, $this->conflicts($reported));
+        $this->assertSame(['POST' => 1], $counting->scans);
     }
 
     /**
@@ -205,9 +228,11 @@ final class WebhookRouteCacheConflictTest extends TestCase
      * Provider order is the real one: the package is discovered and registered before the
      * application's own RouteServiceProvider, whose register() is what defers the table.
      *
+     * @param  (callable(Application): void)|null  $beforeBoot  Runs after the container is
+     *                                                          wired and before providers boot.
      * @return array{Application, RecordingExceptionHandler}
      */
-    private function bootApplication(bool $registerPackage = true): array
+    private function bootApplication(bool $registerPackage = true, ?callable $beforeBoot = null): array
     {
         $app = new Application($this->base);
 
@@ -226,6 +251,10 @@ final class WebhookRouteCacheConflictTest extends TestCase
 
         $recorder = new RecordingExceptionHandler;
         $app->instance(ExceptionHandler::class, $recorder);
+
+        if ($beforeBoot !== null) {
+            $beforeBoot($app);
+        }
 
         if ($registerPackage) {
             $app->register(WlcmServiceProvider::class);

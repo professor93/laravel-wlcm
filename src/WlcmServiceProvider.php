@@ -100,8 +100,20 @@ final class WlcmServiceProvider extends ServiceProvider
      * baked routes-v7.php in tests/Feature/WebhookRouteCacheConflictTest.php — Laravel's own
      * WithCachedRoutes trait installs the table synchronously and hides all of this.
      *
+     * The second point is registered ONLY when routes are cached, because that is the only
+     * state in which the first one is early. Registering it unconditionally cost every
+     * merchant without a conflict a second full scan of the POST table on every boot —
+     * measured at two scans, where one is enough — to buy nothing: with no cache the table is
+     * already final at booted(). What it does not buy back is a host route registered from an
+     * application booted() callback queued after ours; that was never seen and still is not.
+     *
      * booted() also covers a provider registered after the app has booted: it runs the
      * callback immediately in that case, and by then the table is installed.
+     *
+     * This fires in CONSOLE too, and always did on the uncached path — the package boots for
+     * `route:cache`, `migrate` and a scheduler tick like any other provider. A conflict will
+     * therefore surface in deploy output. Kept deliberately: `route:cache` is the command that
+     * creates the dangerous state, so it is the best possible moment to hear about it.
      *
      * Read the collection, never the name lookup: eviction mutates allRoutes, and an
      * evicted route still answers to its name, so a name-based check could not fail.
@@ -148,6 +160,9 @@ final class WlcmServiceProvider extends ServiceProvider
         };
 
         $app->booted($watch);
-        $app->afterBootstrapping(BootProviders::class, $watch);
+
+        if ($app->routesAreCached()) {
+            $app->afterBootstrapping(BootProviders::class, $watch);
+        }
     }
 }
