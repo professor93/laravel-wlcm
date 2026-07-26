@@ -192,6 +192,26 @@ final class WebhookTest extends TestCase
     }
 
     /**
+     * Every timestamp shape the guard ACCEPTS, so both generators below derive their case
+     * set from the rule under test rather than from examples someone picked. The offset
+     * forms carry an extra colon and produce more splits than the bare ones — exactly the
+     * kind of gap a hand-chosen fixture list leaves behind.
+     *
+     * @return list<string>
+     */
+    private static function acceptedStamps(): array
+    {
+        return [
+            '1745740800000',
+            '1750000000',
+            '2026-07-24 12:00:00',
+            '2026-07-24T12:00:00Z',
+            '2026-07-24T12:00:00+05:00',
+            '2026-07-24T12:00:00.123+05:00',
+        ];
+    }
+
+    /**
      * Generated, not hand-listed. Three hand-written completeness arguments about this
      * guard have now failed, each because someone enumerated the splits they thought of.
      * This walks EVERY way a captured payment base can be cut across the subscription
@@ -204,20 +224,12 @@ final class WebhookTest extends TestCase
     {
         $cases = [];
 
-        // Every timestamp shape the guard ACCEPTS, so the case set is derived from the
-        // rule under test rather than from two examples someone picked. The offset forms
-        // carry an extra colon and produce 15 splits each rather than 10 — exactly the
-        // kind of gap a hand-chosen fixture list leaves behind.
-        $stamps = [
-            '1745740800000',
-            '1750000000',
-            '2026-07-24 12:00:00',
-            '2026-07-24T12:00:00Z',
-            '2026-07-24T12:00:00+05:00',
-            '2026-07-24T12:00:00.123+05:00',
-        ];
-
-        foreach ($stamps as $stamp) {
+        foreach (self::acceptedStamps() as $stamp) {
+            // The three payment field VALUES are fixed, and that is not a held variable:
+            // the guards refuse a colon in order_id and payment_id and refuse a
+            // non-numeric state, so every admissible value of all three contributes
+            // exactly one part and the split topology depends on the timestamp alone.
+            // The test asserts that rather than trusting it.
             $base = "1254:7788:2:{$stamp}";
             $parts = explode(':', $base);
             $n = count($parts);
@@ -240,6 +252,44 @@ final class WebhookTest extends TestCase
         return $cases;
     }
 
+    /**
+     * Every subscription base an attacker can get WLCM to sign, as a list of the base's
+     * colon-separated parts.
+     *
+     * The reference is where the first version of this went wrong. It assumed
+     * `external_order_id` is colon-free "because the guard refuses a colon in it" — but
+     * that guard runs INBOUND, on delivery. It does not stop WLCM signing a delivery for
+     * a merchant whose own reference contains colons, and the capture the attack needs
+     * comes from upstream, not from a request we ever saw. So the reference's part count
+     * is varied 1..4, and each variant is generated all-numeric as well, because the
+     * `state` position only has to be numeric to pass that guard.
+     *
+     * The event is held at ONE part deliberately, and this is the named assumption of the
+     * whole set rather than an oversight: WLCM mints it from `subscription.` names that
+     * contain no colon. If a colon-bearing event is ever observed, add it here — that is
+     * the single edit that widens this coverage.
+     *
+     * @return array<string, list<string>>
+     */
+    private static function signableSubscriptionBases(): array
+    {
+        $bases = [];
+
+        foreach ([1, 2, 3, 4] as $referenceParts) {
+            foreach (['ref', '7'] as $token) {
+                foreach (self::acceptedStamps() as $stamp) {
+                    $reference = implode(':', array_fill(0, $referenceParts, $token));
+                    $bases["{$referenceParts}x{$token} | {$stamp}"] = explode(
+                        ':',
+                        "{$reference}:subscription.charged:{$stamp}",
+                    );
+                }
+            }
+        }
+
+        return $bases;
+    }
+
     #[DataProvider('everyCrossFamilySplit')]
     public function test_no_split_of_a_payment_base_is_accepted_as_a_subscription(string $reference, string $event, string $timestamp): void
     {
@@ -251,6 +301,11 @@ final class WebhookTest extends TestCase
         // The split reconstructs the captured payment base, so that IS the signed string.
         $base = "{$reference}:{$event}:{$timestamp}";
         $this->assertStringStartsWith('1254:7788:2:', $base, 'the split does not reconstruct a payment base');
+        // The topology claim the generator rests on: each payment field is one part, so
+        // the timestamp is the only thing that varies the split count. If a guard is ever
+        // relaxed to admit a colon here, this fails instead of the coverage silently
+        // shrinking.
+        $this->assertSame(['1254', '7788', '2'], array_slice(explode(':', $base), 0, 3));
         $signature = hash_hmac('sha256', $base, 'whsec_test');
 
         $this->postJson('/wlcm/webhook', [
@@ -258,6 +313,65 @@ final class WebhookTest extends TestCase
             'timestamp' => $timestamp, 'signature' => $signature,
         ])->assertStatus(422);
 
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    /**
+     * The OTHER direction, and until now the README claimed it was enumerated when only
+     * one hand-picked case covered it — the exact shape of failure this file exists to
+     * prevent.
+     *
+     * A subscription base `{external_order_id}:{event}:{timestamp}` is re-read as a
+     * payment base `{order_id}:{payment_id}:{state}:{timestamp}` — three fields cut into
+     * four, so three cut points where the forward direction needed two.
+     *
+     * One test rather than a DataProvider because it is 820 deliveries: every hole is
+     * collected and reported together, and the whole set posts through the real
+     * middleware in a third of a second, where 820 provider cases would boot 820 apps.
+     */
+    public function test_no_split_of_a_subscription_base_is_accepted_as_a_payment(): void
+    {
+        Event::fake();
+        // Freshness off: the guard must hold on its own, not because a later check
+        // happens to catch the leftovers.
+        config(['wlcm.webhook.tolerance_seconds' => null]);
+
+        $holes = [];
+        $posted = 0;
+
+        foreach (self::signableSubscriptionBases() as $label => $parts) {
+            $base = implode(':', $parts);
+            $n = count($parts);
+
+            for ($i = 1; $i < $n; $i++) {
+                for ($j = $i + 1; $j < $n; $j++) {
+                    for ($k = $j + 1; $k < $n; $k++) {
+                        $orderId = implode(':', array_slice($parts, 0, $i));
+                        $paymentId = implode(':', array_slice($parts, $i, $j - $i));
+                        $state = implode(':', array_slice($parts, $j, $k - $j));
+                        $timestamp = implode(':', array_slice($parts, $k));
+                        $posted++;
+
+                        $status = $this->postJson('/wlcm/webhook', [
+                            'order_id' => $orderId, 'payment_id' => $paymentId, 'state' => $state,
+                            // Valid, so a refusal cannot come from the amount guard instead.
+                            'amount' => '10.00', 'external_id' => 'ATTACKER',
+                            'timestamp' => $timestamp,
+                            'signature' => hash_hmac('sha256', $base, 'whsec_test'),
+                        ])->getStatusCode();
+
+                        if ($status !== 422) {
+                            $holes[] = "{$label} | O={$orderId} P={$paymentId} S={$state} T={$timestamp} -> {$status}";
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pinned so the enumeration cannot silently shrink. Adding a timestamp shape to
+        // acceptedStamps(), or an event with a colon, must change this number on purpose.
+        $this->assertSame(820, $posted, 'the generated split set changed size');
+        $this->assertSame([], $holes, "accepted splits of a subscription base:\n".implode("\n", $holes));
         Event::assertNotDispatched(WebhookReceived::class);
     }
 
