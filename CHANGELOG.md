@@ -20,6 +20,9 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Amounts are `int` tiyin throughout, converted to sum only where the API expects it
 
 ### Changed
+- BREAKING: `TransactionStore::applyWebhook`, `markProcessed`, `claimSubscription` and `markSubscriptionProcessed` take a `string $token`, and `releaseClaim`/`releaseSubscriptionClaim` are new. A rebound store must decide the claim by an affected-row count, never by reading `processed_at`
+- BREAKING: a webhook state moving *backward* on the same `payment_id` is now refused as `stale` instead of dispatching again
+- A required webhook field that is present but empty is now a 422, matching a missing one
 - Partner info reads `/partners/me`; the documented `/integrations/me` has no route
 - Card OTP confirm posts to `/integrations/payment/card/confirm`
 - Fixed split amounts ship as SUM by default — the server compares fixed totals against the payment's SUM value, though the docs claim tiyin
@@ -30,6 +33,9 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 - Amounts are validated end to end — non-positive, non-integer, indivisible and oversized values throw instead of shipping the wrong number
 - Webhook deliveries missing a required field, or carrying an unreadable timestamp, are rejected instead of coerced
 - A terminal payment row accepts only a subsequent cancel; other late deliveries are recorded stale instead of replayed
+- Concurrent identical webhook deliveries dispatched the money-path event up to once per copy (deterministically once per copy on the subscription path). A delivery is now claimed by one conditional `UPDATE` whose affected-row count is the verdict, so exactly one copy dispatches and the losers log `inflight`
+- A slow dispatch could stamp a *later* delivery's claim as processed, and that later delivery's redelivery was then answered `duplicate` — its event never fired again. Claims carry a per-attempt token and a dispatch can only stamp its own
+- A backward state transition on one `payment_id` re-dispatched a delivery still in flight; the ladder is now forward-only
 - Audit write failures are reported and swallowed so they never break a payment call
 - An unknown log driver, a bad tolerance value or a missing secret throws on use instead of silently disabling the feature
 
