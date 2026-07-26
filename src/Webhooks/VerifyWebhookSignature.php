@@ -28,7 +28,23 @@ final readonly class VerifyWebhookSignature
     public function handle(Request $request, Closure $next): Response
     {
         // Subscription events carry `event` field; payment webhooks never do.
-        $isSubscription = $request->input('event') !== null;
+        $event = $request->input('event');
+        $isSubscription = $event !== null;
+
+        // Neither signature base carries a domain tag, and both are bare colon joins, so
+        // a payment base {order_id}:{payment_id}:{state}:{timestamp} is byte-identical to
+        // a subscription base {external_order_id}:{event}:{timestamp} when the reference
+        // holds the colon — a captured payment delivery replays as a subscription with
+        // its signature UNCHANGED. Every real event is a `subscription.` kind, so
+        // refusing anything else closes that direction without a wire-format change and
+        // without constraining merchant free text. The reverse direction needs a domain
+        // tag in both bases, which is WLCM's to change, not ours.
+        // Scalar only: a non-scalar event is unusable for a different reason and keeps its
+        // existing "Missing field" answer from the loop below. Casting catches a bare
+        // integer event, which is exactly the shape the collision needs.
+        if ($isSubscription && is_scalar($event) && ! str_starts_with((string) $event, 'subscription.')) {
+            abort(422, 'Invalid field: event');
+        }
 
         foreach ($isSubscription ? self::REQUIRED_SUBSCRIPTION : self::REQUIRED_PAYMENT as $field) {
             $value = $request->input($field);

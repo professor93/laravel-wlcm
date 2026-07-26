@@ -64,6 +64,44 @@ final class WebhookTest extends TestCase
         Event::assertDispatched(PaymentSucceeded::class);
     }
 
+    /**
+     * Both signature bases are bare colon joins with no domain tag, so a payment base
+     * `{order_id}:{payment_id}:{state}:{timestamp}` is byte-identical to a subscription
+     * base `{external_order_id}:{event}:{timestamp}` when the reference carries the
+     * colon. A captured payment delivery could therefore be replayed as a subscription
+     * one with its signature UNCHANGED. Refusing an event that is not a `subscription.`
+     * kind closes the payment->subscription direction without touching the wire format
+     * or constraining merchant free text.
+     */
+    public function test_a_payment_delivery_cannot_be_replayed_as_a_subscription(): void
+    {
+        Event::fake();
+        $payment = $this->payload();
+
+        $this->postJson('/wlcm/webhook', [
+            'event' => '2',
+            'external_order_id' => '1254:7788',
+            'timestamp' => $payment['timestamp'],
+            'signature' => $payment['signature'], // byte-identical, never recomputed
+        ])->assertStatus(422);
+
+        Event::assertNotDispatched(WebhookReceived::class);
+    }
+
+    public function test_a_real_subscription_event_still_passes(): void
+    {
+        Event::fake();
+        $data = [
+            'event' => 'subscription.charged', 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ];
+        $data['signature'] = hash_hmac('sha256', 'order-1001:subscription.charged:1745740800000', 'whsec_test');
+
+        $this->postJson('/wlcm/webhook', $data)->assertOk();
+        Event::assertDispatched(WebhookReceived::class);
+    }
+
     public function test_success_webhook_fires_events(): void
     {
         Event::fake();
