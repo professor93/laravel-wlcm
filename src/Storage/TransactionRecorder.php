@@ -153,7 +153,11 @@ final class TransactionRecorder implements TransactionStore
                 'meta' => Masker::scrubProse(Masker::mask(['checkout_url' => $response->checkoutUrl, 'cid' => $response->cid])),
             ]));
         } catch (Throwable $e) {
-            report($e); // Audit write must never break payment call.
+            // Swallowed so a broken sink does not break the payment call — but not
+            // absolute: report() throws when the log stack cannot be built, the same
+            // failure that breaks the sink. Guarded deliberately at the config sites above,
+            // bare here, and README says so.
+            report($e);
         }
     }
 

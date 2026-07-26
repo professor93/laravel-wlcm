@@ -127,6 +127,10 @@ final class LogChannelLogStore implements LogStore
         try {
             Log::channel($this->channel())->info('wlcm', $entry);
         } catch (Throwable $e) {
+            // Swallowed so a broken sink does not break the payment call — but not
+            // absolute: report() throws when the log stack cannot be built, the same
+            // failure that breaks the sink. Guarded deliberately at the config sites above,
+            // bare here, and README says so.
             report($e);
         }
     }
