@@ -65,8 +65,13 @@ final class IndexNameLengthTest extends TestCase
         $this->assertGreaterThanOrEqual(9, $checked, 'the index sweep found almost nothing');
         // Length alone was the wrong property to pin by itself: shortening the names by
         // hand-naming them ALSO stripped the table prefix, which broke two prefixed
-        // installs sharing one schema. IndexPrefixTest carries that guard, under a
-        // connection that actually has prefix_indexes on — this note exists so the two
-        // are read as one requirement rather than length being "the" index rule.
+        // installs sharing one schema. IndexPrefixTest carries that guard.
+        //
+        // This test deliberately runs on the DEFAULT connection — no prefix, and
+        // `prefix_indexes` absent from Testbench's sqlite config and therefore falsy — so
+        // the names it measures are the bare stems. That is the right baseline for a length
+        // budget and it is also why this test can say NOTHING about prefixing: with that
+        // switch off, Laravel's own derived names are unprefixed too. Read IndexPrefixTest's
+        // class docblock before writing anything else that reasons about index identifiers.
     }
 }

@@ -25,11 +25,23 @@ use Uzbek\Wlcm\Tests\TestCase;
 final class IndexPrefixTest extends TestCase
 {
     /**
-     * `prefix_indexes` is the switch Laravel itself consults, and it must be ON here or
-     * the test proves nothing: with it off, Laravel's own derived names are bare too, so
-     * every index in the schema collides and our named ones do not stand out. Laravel's
-     * shipped `config/database.php` sets it true on every connection; Testbench's default
-     * sqlite config omits it, which is why it is set explicitly.
+     * READ THIS BEFORE WRITING ANY OTHER INDEX-NAME TEST.
+     *
+     * `prefix_indexes` is the switch Laravel consults before applying the table prefix to
+     * an index name, and **Testbench's default sqlite connection omits it** — so it is
+     * falsy, and Laravel's own derived names come out bare too. In that state every index
+     * in the schema is unprefixed, everything collides equally, and a hand-named index
+     * cannot be distinguished from a derived one.
+     *
+     * Which means: an index-name test written against Testbench's default connection is
+     * measuring NOTHING. This was not deduced, it was walked into — the first run of this
+     * test failed on `wlcm_logs_external_id_index`, a DERIVED name, and the regression it
+     * was written to catch was invisible until the line below was added. Laravel's shipped
+     * `config/database.php` sets it true on every connection, so production behaviour is
+     * the opposite of the test default.
+     *
+     * Do not remove the line below, and set it in any new test that reasons about index
+     * identifiers.
      */
     protected function defineEnvironment($app): void
     {
