@@ -2,7 +2,7 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
-## [Unreleased]
+## [0.1.0] - 2026-07-27
 
 ### Added
 - Partner API client with HMAC request signing, multiple named connections and a `Wlcm::partner()` facade
