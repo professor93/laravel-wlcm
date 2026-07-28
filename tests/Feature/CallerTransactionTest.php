@@ -125,6 +125,25 @@ final class CallerTransactionTest extends TestCase
         }
     }
 
+    // Same rule on the order path: recordOrder also runs after the POST, so the refusal
+    // has to happen before anything leaves the process.
+    public function test_an_order_is_refused_before_anything_is_sent(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 642, 'external_id' => 't-1', 'amount' => 100000, 'status' => 'created',
+        ], 200)]);
+
+        $this->expectException(CallerTransactionException::class);
+        $this->expectExceptionMessage('Nothing was sent');
+
+        try {
+            Wlcm::partner()->orders()->create(amountTiyin: 100000, externalId: 't-1');
+        } finally {
+            Http::assertNothingSent();
+            $this->assertSame(0, WlcmTransaction::query()->count());
+        }
+    }
+
     public function test_the_opt_out_restores_every_path(): void
     {
         config()->set('wlcm.allow_caller_transaction', true);

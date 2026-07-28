@@ -29,4 +29,15 @@ final class CallerTransactionException extends WlcmException
             .self::REMEDY,
         );
     }
+
+    public static function order(): self
+    {
+        return new self(
+            'wlcm refused an order creation inside a caller-opened database transaction. Nothing was sent to WLCM. '
+            .'The wlcm_transactions row recording the order would roll back with your transaction, '
+            .'leaving WLCM holding an order this package cannot correlate to anything — and because the order '
+            .'carries your external_id, creating it again is a 409 rather than a clean retry. '
+            .self::REMEDY,
+        );
+    }
 }
