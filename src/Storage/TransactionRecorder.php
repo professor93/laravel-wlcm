@@ -18,6 +18,7 @@ use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Exceptions\WebhookClaimException;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Partner\Data\Order;
 use Uzbek\Wlcm\Support\CallerTransaction;
 use Uzbek\Wlcm\Support\ConfigToggle;
 use Uzbek\Wlcm\Support\ConnectionConfig;
@@ -157,6 +158,38 @@ final class TransactionRecorder implements TransactionStore
             // absolute: report() throws when the log stack cannot be built, the same
             // failure that breaks the sink. Guarded deliberately at the config sites above,
             // bare here, and README says so.
+            report($e);
+        }
+    }
+
+    /** @param array<string, mixed> $requestPayload */
+    public function recordOrder(string $connection, array $requestPayload, Order $order): void
+    {
+        if (! $this->enabled()) {
+            return;
+        }
+
+        $requested = $requestPayload['amount'] ?? null;
+
+        try {
+            WlcmTransaction::create(ColumnFit::row([
+                'connection' => $connection,
+                'api' => 'partner',
+                // Merchant free-text, so it is scrubbed. order_id below is server-minted
+                // and stays RAW — a Luhn-coincident one would otherwise be masked into a
+                // different row identity.
+                'external_id' => self::scrubbed($order->externalId),
+                'order_id' => (string) $order->orderId,
+                // The echo is authoritative when present; the requested amount is the
+                // fallback because the DTO parses the wire defensively.
+                'amount_tiyin' => $order->amountTiyin ?? (is_numeric($requested) ? (int) $requested : 0),
+                // Neither exists until a provider link is generated.
+                'provider' => null,
+                'state' => null,
+                'state_text' => $order->status,
+            ]));
+        } catch (Throwable $e) {
+            // Same posture as recordCheckout: a broken sink must not break the call.
             report($e);
         }
     }

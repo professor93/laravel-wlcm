@@ -25,6 +25,7 @@ use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Models\WlcmLog;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Partner\Data\Order;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionStore;
 use Uzbek\Wlcm\Storage\WebhookOutcome;
@@ -516,6 +517,11 @@ final class StorageWiringTest extends TestCase
             {
                 $this->calls[] = 'recordCheckout';
             }
+
+            public function recordOrder(string $connection, array $requestPayload, Order $order): void
+            {
+                $this->calls[] = 'recordOrder';
+            }
         };
         $this->app->instance(TransactionStore::class, $spy);
 
@@ -563,6 +569,11 @@ final class StorageWiringTest extends TestCase
             public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void
             {
                 $this->calls[] = 'recordCheckout';
+            }
+
+            public function recordOrder(string $connection, array $requestPayload, Order $order): void
+            {
+                $this->calls[] = 'recordOrder';
             }
         };
         $this->app->instance(TransactionStore::class, $spy);

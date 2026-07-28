@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Storage;
 
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Partner\Data\Order;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
@@ -34,4 +35,7 @@ interface TransactionStore
 
     /** @param array<string, mixed> $requestPayload */
     public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void;
+
+    /** @param array<string, mixed> $requestPayload */
+    public function recordOrder(string $connection, array $requestPayload, Order $order): void;
 }

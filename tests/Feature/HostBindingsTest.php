@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Tests\Feature;
 
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
+use Uzbek\Wlcm\Partner\Data\Order;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
@@ -80,6 +81,9 @@ final class HostTransactionStore implements TransactionStore
 {
     /** @param array<string, mixed> $requestPayload */
     public function recordCheckout(string $connection, array $requestPayload, CheckoutResponse $response): void {}
+
+    /** @param array<string, mixed> $requestPayload */
+    public function recordOrder(string $connection, array $requestPayload, Order $order): void {}
 
     public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
     {
