@@ -44,7 +44,31 @@ $r = Wlcm::partner()->checkout()->create(
 $r->checkoutUrl; // redirect the customer here
 ```
 
-Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::partner()->payments()->confirmOtp($transactionId, $cid, $otp)`. Other calls:
+Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `Wlcm::partner()->payments()->confirmOtp($transactionId, $cid, $otp)`.
+
+Order without a provider — registers an order at cart time, before the payer has chosen how to pay:
+
+```php
+$order = Wlcm::partner()->orders()->create(amountTiyin: 250000, externalId: 'ORD-7');
+
+$order->orderId;      // 642
+$order->status;       // 'created'
+$order->statusEnum(); // OrderState::Created, or null for a value WLCM has not published
+```
+
+`externalId` is optional and omitted from the payload when null; the server then echoes `external_id: null`. Reusing one is a 409 `ConflictException` whose `errorCode()` is `null` — the server answers with prose, not a machine code. A non-positive amount throws `InvalidAmountException` before anything is sent.
+
+**This order cannot be paid through this package.** Turning it into a checkout URL needs `POST /integrations/generate/link`, which is not implemented — and that endpoint requires a `payment_provider`, so it cannot produce a provider-agnostic link for a QR code either.
+
+**Reconciliation trap:** `orders()->status()` on an order that was never linked to a provider already reports `state: 1` and `is_pending: true`. An order nobody has attempted to pay reads as in progress, so `isPaid` is the only safe signal — never treat pending alone as evidence a payment was started.
+
+`Wlcm::fake()` does not stub this endpoint, so a test calling it under `fake()` meets the catch-all 500. Stub it explicitly:
+
+```php
+Wlcm::fake(['*/integrations/orders' => ['order_id' => 1, 'external_id' => 'ORD-7', 'amount' => 250000, 'status' => 'created']]);
+```
+
+Other calls:
 
 - `Wlcm::partner()->partners()->me()` — partner info
 - `Wlcm::partner()->providers()->all()` — payment providers (public endpoint), `providerEnum()` per row

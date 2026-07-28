@@ -2,6 +2,14 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [Unreleased]
+
+### Added
+- `orders()->create()` registers an order before a payment provider is chosen, and records it to `wlcm_transactions` with no provider, no integer state and no payment id. The order cannot be paid through this package: that needs `POST /integrations/generate/link`, which is not implemented
+
+### Changed
+- BREAKING: `TransactionStore` gains `recordOrder(string $connection, array $requestPayload, Order $order)`. `TransactionStore` is a documented rebinding point, so an implementation written against the previous interface will fatal on upgrade
+
 ## [0.1.0] - 2026-07-27
 
 ### Added
