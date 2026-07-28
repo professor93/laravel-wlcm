@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Webhooks;
 
+use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -57,6 +58,11 @@ final readonly class WebhookPayload
         return PaymentState::tryFrom($this->state);
     }
 
+    public function providerEnum(): ?PaymentProvider
+    {
+        return PaymentProvider::fromName($this->provider);
+    }
+
     public function isSuccess(): bool
     {
         return $this->state === PaymentState::Success->value;
@@ -67,7 +73,6 @@ final readonly class WebhookPayload
         return $this->state === PaymentState::Cancelled->value;
     }
 
-    // Webhook amount arrives as decimal SUM string; int tiyin without float drift.
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString($this->amount);

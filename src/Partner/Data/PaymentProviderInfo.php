@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+use Uzbek\Wlcm\Enums\PaymentProvider;
+
 /**
  * @phpstan-type PaymentProviderInfoShape array{name?: WlcmJsonScalar, label?: WlcmJsonScalar, sort_order?: WlcmJsonScalar, is_active?: WlcmJsonScalar, icon?: WlcmJsonScalar}
  */
@@ -30,5 +32,11 @@ final readonly class PaymentProviderInfo
             icon: isset($data['icon']) ? (string) $data['icon'] : null,
             raw: $data,
         );
+    }
+
+    // Null for sandbox-only names such as mock_payme, which the enum has no case for.
+    public function providerEnum(): ?PaymentProvider
+    {
+        return PaymentProvider::fromName($this->name);
     }
 }

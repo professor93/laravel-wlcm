@@ -12,14 +12,16 @@ use Uzbek\Wlcm\WlcmManager;
 /**
  * @method static \Uzbek\Wlcm\Connection connection(?string $name = null)
  * @method static \Uzbek\Wlcm\Partner\PartnerClient partner()
+ * @method static void forget(string $name)
+ * @method static void flush()
  *
  * @see WlcmManager
  */
 final class Wlcm extends Facade
 {
     /**
-     * Call once per test: the first call's stubs, including the catch-all,
-     * take precedence over any later Http::fake()/Wlcm::fake() calls.
+     * Call once per test: first call's stubs, including catch-all, take
+     * precedence over any later Http::fake()/Wlcm::fake() call.
      *
      * @param  array<string, array<string, mixed>|PromiseInterface>  $responses
      */

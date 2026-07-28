@@ -16,26 +16,30 @@ use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
 use Uzbek\Wlcm\Storage\Masker;
 
-// Maps Partner API responses (FastAPI error shapes) onto the package exception tree.
+// Maps Partner API responses (FastAPI error shapes) onto package exception tree.
 final class ErrorMapper
 {
     /** @return array<string, mixed> */
     public static function handle(Response $response, string $connectionName, string $method, string $url): array
     {
+        // Query carries merchant free-text (fiscalization external_id, subscription lookup),
+        // and exception context is what the merchant's default handler writes to their log.
+        $url = Masker::scrubPans($url);
+
         if ($response->successful()) {
             $json = $response->json();
 
             if (! is_array($json)) {
-                // 200 with garbage body (proxy page, truncated JSON) must never read as "not paid".
+                // Garbage 200 body (proxy page, truncated JSON) must not read as unpaid.
                 throw new ServerException(
                     "WLCM returned HTTP {$response->status()} with a non-JSON body",
                     connectionName: $connectionName,
                     requestMethod: $method,
                     requestPath: $url,
                     responseStatus: $response->status(),
-                    // Scrub before the final cut: a truncated PAN's check digit is Luhn-recoverable.
-                    // The pre-cut bounds the scan on huge bodies without ever reaching the kept
-                    // bytes: a scrub collapses 20 chars to 14 at worst, so the 500 that survive
+                    // Scrub before cut: truncated PAN check digit Luhn-recoverable.
+                    // Pre-cut bounds scan on huge bodies, never reaching kept bytes:
+                    // scrub collapses 20 chars to 14 at worst, so the 500 that survive
                     // come from no further in than byte 734.
                     responseBody: mb_strcut(Masker::scrubPans(mb_strcut($response->body(), 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
                 );
@@ -54,22 +58,47 @@ final class ErrorMapper
         if (is_array($body)) {
             /** @var array<string, mixed> $body */
             $detail = $body['detail'] ?? $body['message'] ?? null;
+            $detailCode = null;
 
-            if (is_array($detail)) {
+            // A LIST detail is pydantic's validation array; a DICT one is this API's own
+            // {message, code, suggestions} envelope. Reading the dict as a list threw both away.
+            if (is_array($detail) && array_is_list($detail)) {
                 [$detailMessage, $errors] = self::parseFastApiDetail($detail);
                 $message = $detailMessage ?? $message;
+            } elseif (is_array($detail)) {
+                $detailMessage = $detail['message'] ?? null;
+                // Cast first, then test: `false` casts to "" and an empty message is worse
+                // than the reason phrase. "0" is a real message and survives.
+                $candidate = is_scalar($detailMessage) ? (string) $detailMessage : '';
+                $message = $candidate !== '' ? $candidate : $message;
+                $detailCode = $detail['code'] ?? null;
             } elseif ($detail !== null) {
                 /** @var WlcmJsonScalar $detail */
                 $message = (string) $detail;
             }
 
             $code = $body['code'] ?? null;
-            // Machine codes live in `code`, or arrive as a bare snake_case detail string.
+            // Machine codes live in `code`, inside a dict detail, or arrive as bare snake_case
+            // detail string. Live codes are UPPER_CASE and have no enum case: pass them raw.
             $errorCode = match (true) {
                 is_string($code) && $code !== '' => $code,
-                is_string($detail) && preg_match('/^[a-z0-9_]+$/', $detail) === 1 => $detail,
+                // Case-insensitive: live codes are UPPER_CASE. Guarded so server prose
+                // cannot masquerade as a code and ride out unscrubbed.
+                //
+                // \z not $, the choice Tiyin::fromSumString documents: PCRE $ matches
+                // before a final newline, so "invalid_otp\n" slipped both guards. That is
+                // not cosmetic — errorCode() then returns a value a merchant's
+                // === 'invalid_otp' misses, and errorCodeEnum() cannot resolve a code the
+                // package knows, dropping their match into its default arm. A trailing
+                // newline is exactly the prose these guards exist to refuse.
+                is_string($detailCode) && preg_match('/^[A-Za-z0-9_]+\z/', $detailCode) === 1 => $detailCode,
+                is_string($detail) && preg_match('/^[a-z0-9_]+\z/', $detail) === 1 => $detail,
                 default => null,
             };
+
+            // errorCode is the only string reaching the exception without a scrub of its
+            // own. No-op on a real code; kills an all-digit one that slips the guard.
+            $errorCode = $errorCode === null ? null : Masker::scrubPans($errorCode);
 
             $errorsRaw = $body['errors'] ?? null;
 
@@ -83,13 +112,12 @@ final class ErrorMapper
         /** @var array<string, list<string>> $errors */
         $errors = Masker::scrubProse($errors);
 
-        // Derivation above reads the RAW body on purpose. Every string and integer surface that
-        // leaves on the exception is PAN-scrubbed: message/errors keep server prose minus PANs, and
-        // responseBody is additionally key-masked — FastAPI echoes the submitted payload there.
+        // Derivation above reads RAW body on purpose. Every string/int surface leaving on the
+        // exception is PAN-scrubbed: message/errors keep server prose minus PANs; responseBody
+        // additionally key-masked — FastAPI echoes submitted payload there.
         $exposedBody = match (true) {
             is_array($body) => Masker::scrubProse(Masker::mask(self::maskDetailInputs($body))),
-            // Cut on a codepoint boundary: a half character makes json_encode of the whole
-            // exception context fail.
+            // Cut on codepoint boundary: half character fails json_encode of whole exception context.
             is_string($body) => mb_strcut(Masker::scrubPans(mb_strcut($body, 0, 1024, 'UTF-8')), 0, 500, 'UTF-8'),
             is_int($body) => ($s = Masker::scrubPans((string) $body)) === (string) $body ? $body : $s,
             default => $body,
@@ -97,9 +125,8 @@ final class ErrorMapper
 
         $args = [$message, $connectionName, $method, $url, $status, $exposedBody];
 
-        // 4xx is a determinate business answer. 5xx/3xx leave the outcome unknown and 401/403 were
-        // never business-evaluated, so a body code there must not be relabelled as a decline;
-        // it still rides along via errorCode.
+        // 4xx = determinate business answer. 5xx/3xx leave outcome unknown, 401/403 never
+        // business-evaluated: body code there must not be relabelled a decline. Still rides errorCode.
         $determinate = $status >= 400 && $status < 500;
 
         throw match (true) {
@@ -118,8 +145,8 @@ final class ErrorMapper
         };
     }
 
-    // Pydantic sends `input` as the bare failing value for field-level errors, invisible to a
-    // key-based masker. Re-key under the loc tail so Masker's own rules decide.
+    // Pydantic sends `input` as bare failing value for field-level errors, invisible to
+    // key-based masker. Re-key under loc tail so Masker's own rules decide.
     /**
      * @param  array<array-key, mixed>  $body
      * @return array<array-key, mixed>
@@ -146,7 +173,7 @@ final class ErrorMapper
                 continue;
             }
 
-            // A DROP key masks to nothing at all, so an absent key means "withhold".
+            // DROP key masks to nothing at all, so absent key means "withhold".
             $masked = Masker::mask([$field => $item['input']]);
             $item['input'] = array_key_exists($field, $masked) ? $masked[$field] : '***';
             $detail[$i] = $item;
@@ -158,8 +185,8 @@ final class ErrorMapper
     }
 
     /**
-     * FastAPI 422 detail: list of {type, loc, msg, input, ctx}. Message keeps the full
-     * loc path ("body.return_url: Field required"); errors() keys drop the leading "body".
+     * FastAPI 422 detail: list of {type, loc, msg, input, ctx}. Message keeps full loc
+     * path ("body.return_url: Field required"); errors() keys drop leading "body".
      *
      * @param  array<mixed>  $detail
      * @return array{0: string|null, 1: array<string, list<string>>}

@@ -237,7 +237,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_crash_recovery_refires_events(): void
     {
-        // Row claimed but processed_at never set (handler crashed) -> same delivery re-fires.
+        // Row claimed, processed_at never set (handler crashed) -> same delivery re-fires.
         $data = $this->webhookData('2');
         Event::fake();
         $this->postJson('/wlcm/webhook', $data)->assertOk();
@@ -452,7 +452,7 @@ final class StorageWiringTest extends TestCase
 
     public function test_log_store_is_swappable(): void
     {
-        // Swap BEFORE the first Wlcm:: call — the manager caches the connection.
+        // Swap BEFORE first Wlcm:: call — manager caches connection.
         $spy = new class implements LogStore
         {
             /** @var list<string> */
@@ -463,7 +463,7 @@ final class StorageWiringTest extends TestCase
                 $this->calls[] = $result;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void
             {
                 $this->calls[] = "webhook:{$result}";
             }
@@ -484,26 +484,30 @@ final class StorageWiringTest extends TestCase
             /** @var list<string> */
             public array $calls = [];
 
-            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'applyWebhook';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markProcessed(WebhookPayload $payload): void
+            public function releaseClaim(WebhookPayload $payload, string $token): void {}
+
+            public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void {}
+
+            public function markProcessed(WebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markProcessed';
             }
 
-            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'claimSubscription';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markSubscriptionProcessed';
             }
@@ -528,26 +532,30 @@ final class StorageWiringTest extends TestCase
             /** @var list<string> */
             public array $calls = [];
 
-            public function applyWebhook(WebhookPayload $payload): WebhookOutcome
+            public function applyWebhook(WebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'applyWebhook';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markProcessed(WebhookPayload $payload): void
+            public function releaseClaim(WebhookPayload $payload, string $token): void {}
+
+            public function releaseSubscriptionClaim(SubscriptionWebhookPayload $payload, string $token): void {}
+
+            public function markProcessed(WebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markProcessed';
             }
 
-            public function claimSubscription(SubscriptionWebhookPayload $payload): WebhookOutcome
+            public function claimSubscription(SubscriptionWebhookPayload $payload, string $token): WebhookOutcome
             {
                 $this->calls[] = 'claimSubscription';
 
                 return WebhookOutcome::Fresh;
             }
 
-            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload): void
+            public function markSubscriptionProcessed(SubscriptionWebhookPayload $payload, string $token): void
             {
                 $this->calls[] = 'markSubscriptionProcessed';
             }
@@ -583,7 +591,7 @@ final class StorageWiringTest extends TestCase
                 $this->requestBody = $requestBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
@@ -609,7 +617,7 @@ final class StorageWiringTest extends TestCase
                 $this->responseBody = $responseBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
@@ -675,8 +683,8 @@ final class StorageWiringTest extends TestCase
         $this->assertSame('860012******9012', $detail[0]['input']);
     }
 
-    // The bundled stores drop a non-array response body, but the interface hands it to custom
-    // stores verbatim, so it has to leave the client already scrubbed.
+    // Bundled stores drop non-array response body, but interface hands it to custom
+    // stores verbatim, so it must leave client already scrubbed.
     public function test_non_array_bodies_are_scrubbed_on_the_log_surface(): void
     {
         $spy = new class implements LogStore
@@ -689,7 +697,7 @@ final class StorageWiringTest extends TestCase
                 $this->bodies[] = $responseBody;
             }
 
-            public function webhook(string $connection, array $payload, string $result): void {}
+            public function webhook(string $connection, array $payload, string $result, array $ids = []): void {}
         };
         $this->app->instance(LogStore::class, $spy);
 
@@ -713,9 +721,128 @@ final class StorageWiringTest extends TestCase
         );
     }
 
+    public function test_pan_prose_in_an_outbound_request_field_is_scrubbed_on_the_log_surface(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 0, 'checkout_url' => 'https://c.test/x'], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'order for card 4111111111111111',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertSame('order for card 411111***1111', $log->request_body['external_id']);
+        $this->assertStringNotContainsString(
+            '4111111111111111',
+            json_encode($log->getAttributes(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_luhn_failing_request_values_survive_the_scrub_beside_a_masked_pan_key(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['order_id' => 1, 'state' => 1], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, externalId: '1234567890123456', provider: 'card',
+            cardNumber: '9860991234569999', expireDate: '3003',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertIsArray($log->request_body);
+        $this->assertSame('1234567890123456', $log->request_body['external_id']);
+        $this->assertSame('986099******9999', $log->request_body['card_number']);
+        $this->assertSame('***', $log->request_body['expire_date']);
+    }
+
+    public function test_pan_prose_echoed_into_a_response_id_is_scrubbed_in_the_log_columns(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'order for card 4111111111111111',
+            'state' => 0, 'checkout_url' => 'https://c.test/x',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(
+            amountTiyin: 120000, returnUrl: 'https://x.test', externalId: 'order for card 4111111111111111',
+        );
+
+        $log = WlcmLog::sole();
+        $this->assertSame('order for card 411111***1111', $log->external_id);
+        $this->assertStringNotContainsString(
+            '4111111111111111',
+            json_encode($log->getAttributes(), JSON_THROW_ON_ERROR),
+        );
+        // Both audit tables scrub their correlation keys, so they still agree byte for byte.
+        $this->assertSame('order for card 411111***1111', WlcmTransaction::sole()->external_id);
+    }
+
+    public function test_ordinary_echoed_ids_survive_the_log_column_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'external_id' => 'ORD-7', 'payment_id' => '7788',
+            'transaction_id' => 'TX-9', 'state' => 0,
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $log = WlcmLog::sole();
+        $this->assertSame('ORD-7', $log->external_id);
+        $this->assertSame('1254', $log->order_id);
+        $this->assertSame('7788', $log->payment_id);
+        $this->assertSame('TX-9', $log->transaction_id);
+    }
+
+    // README exempts only correlation keys from the transaction scrub; meta is not one.
+    public function test_pan_prose_in_checkout_meta_is_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=order+for+card+4111111111111111',
+            'cid' => 'card 4111111111111111',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=order+for+card+411111***1111', $meta['checkout_url']);
+        $this->assertSame('card 411111***1111', $meta['cid']);
+    }
+
+    public function test_percent_encoded_checkout_url_cannot_hide_a_pan_in_meta(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=order%20for%20card%204111111111111111',
+            'cid' => 'cid-7788',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=order%20for%20card%20411111***1111', $meta['checkout_url']);
+        $this->assertSame('cid-7788', $meta['cid']);
+    }
+
+    public function test_ordinary_checkout_meta_survives_the_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 1254, 'state' => 0,
+            'checkout_url' => 'https://c.test/pay?ref=ORD-7&amount=1234567890123456',
+            'cid' => 'cid-7788',
+        ], 201)]);
+
+        Wlcm::partner()->checkout()->create(amountTiyin: 120000, externalId: 'ORD-7');
+
+        $meta = WlcmTransaction::sole()->meta;
+        $this->assertIsArray($meta);
+        $this->assertSame('https://c.test/pay?ref=ORD-7&amount=1234567890123456', $meta['checkout_url']);
+        $this->assertSame('cid-7788', $meta['cid']);
+    }
+
     public function test_pan_prose_in_a_webhook_field_is_scrubbed_on_the_log_surface(): void
     {
-        // external_id sits outside the signature base, so prose there is unauthenticated.
+        // external_id sits outside signature base, so prose there is unauthenticated.
         $data = $this->webhookData();
         $data['external_id'] = 'ORD-1 via card 8600123456789012';
 
@@ -724,7 +851,7 @@ final class StorageWiringTest extends TestCase
         $log = WlcmLog::sole();
         $this->assertIsArray($log->request_body);
         $this->assertSame('ORD-1 via card 860012***9012', $log->request_body['external_id']);
-        // Correlation keys are taken from the payload, not the log surface.
-        $this->assertSame('ORD-1 via card 8600123456789012', WlcmTransaction::sole()->external_id);
+        // Payload feeds the transaction row; it gets the same scrub the log surface got.
+        $this->assertSame('ORD-1 via card 860012***9012', WlcmTransaction::sole()->external_id);
     }
 }

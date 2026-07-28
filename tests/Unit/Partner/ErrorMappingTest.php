@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Tests\Unit\Partner;
 
+use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
+use Uzbek\Wlcm\Exceptions\ConnectionException;
 use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
 use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
 use Uzbek\Wlcm\Exceptions\ServerException;
 use Uzbek\Wlcm\Exceptions\ValidationException;
+use Uzbek\Wlcm\Exceptions\WlcmException;
 use Uzbek\Wlcm\Facades\Wlcm;
 use Uzbek\Wlcm\Tests\TestCase;
 
-// Fixtures are verbatim sandbox (apidev.wlcm.uz) error bodies.
+// Fixtures verbatim sandbox (apidev.wlcm.uz) error bodies.
 final class ErrorMappingTest extends TestCase
 {
     public function test_401_invalid_api_key_carries_error_code(): void
@@ -117,7 +121,7 @@ final class ErrorMappingTest extends TestCase
                 'amount' => ['Input should be greater than 0'],
             ], $e->errors());
 
-            // Masking a bare `input` must not touch values of non-sensitive fields.
+            // Masking bare `input` must not touch values of non-sensitive fields.
             $body = $e->responseBody;
             $this->assertIsArray($body);
             $detail = $body['detail'];
@@ -151,6 +155,165 @@ final class ErrorMappingTest extends TestCase
                 $this->assertSame($fixture, $e->getMessage());
                 $this->assertSame($status, $e->responseStatus);
             }
+        }
+    }
+
+    // Verbatim apidev body for GET /orders/999999999/status.
+    public function test_404_object_detail_keeps_its_message_and_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => '999999999 ID raqamli buyurtma topilmadi. Iltimos, buyurtma raqamini tekshiring.',
+            'code' => 'ORDER_NOT_FOUND',
+            'suggestions' => ['Buyurtma raqamini qayta tekshiring', 'Buyurtma mavjudligini tekshiring'],
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/999999999/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame(
+                '999999999 ID raqamli buyurtma topilmadi. Iltimos, buyurtma raqamini tekshiring.',
+                $e->getMessage(),
+            );
+            // Live codes are upper case and have no enum case; the raw string still rides.
+            $this->assertSame('ORDER_NOT_FOUND', $e->errorCode());
+            $this->assertNull($e->errorCodeEnum());
+        }
+    }
+
+    // A dict detail is not a pydantic error list, so nothing may land in errors().
+    public function test_422_object_detail_yields_no_field_errors(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'amount too small', 'code' => 'AMOUNT_TOO_SMALL',
+        ]], 422)]);
+
+        try {
+            Wlcm::partner()->post('/integrations/checkout', ['amount' => 1]);
+            $this->fail('expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame('amount too small', $e->getMessage());
+            $this->assertSame('AMOUNT_TOO_SMALL', $e->errorCode());
+            $this->assertSame([], $e->errors());
+        }
+    }
+
+    public function test_object_detail_without_message_or_code_degrades_to_the_reason(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => ['suggestions' => ['retry']]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('Not Found', $e->getMessage());
+            $this->assertNull($e->errorCode());
+        }
+    }
+
+    public function test_top_level_code_still_outranks_an_object_detail_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => ['message' => 'no funds', 'code' => 'DETAIL_CODE'],
+            'code' => 'insufficient_funds',
+        ], 402)]);
+
+        try {
+            Wlcm::partner()->get('/payments/1');
+            $this->fail('expected InsufficientFundsException');
+        } catch (InsufficientFundsException $e) {
+            $this->assertSame('no funds', $e->getMessage());
+            $this->assertSame('insufficient_funds', $e->errorCode());
+        }
+    }
+
+    // errorCode is the one string that rides onto the exception unscrubbed, so prose
+    // must never reach it in the first place.
+    public function test_a_pan_shaped_object_detail_code_never_reaches_error_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'declined', 'code' => 'no order for card 4111111111111111',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+            $this->assertSame('declined', $e->getMessage());
+        }
+    }
+
+    public function test_a_bare_pan_object_detail_code_is_scrubbed_even_if_it_passes_the_guard(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'declined', 'code' => '4111111111111111',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+        }
+    }
+
+    public function test_a_pan_shaped_top_level_code_is_scrubbed_too(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'detail' => 'declined', 'code' => '4111111111111111',
+        ], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertStringNotContainsString('4111111111111111', (string) $e->errorCode());
+        }
+    }
+
+    public function test_an_empty_object_detail_message_falls_back_to_the_reason(): void
+    {
+        $body = ['detail' => ['message' => '', 'code' => 'ORDER_NOT_FOUND']];
+        Http::fake(function () use (&$body) {
+            return Http::response($body, 404);
+        });
+
+        foreach ([['message' => '', 'code' => 'ORDER_NOT_FOUND'], ['message' => false, 'code' => 'ORDER_NOT_FOUND']] as $detail) {
+            $body = ['detail' => $detail];
+
+            try {
+                Wlcm::partner()->get('/orders/1/status');
+                $this->fail('expected NotFoundException');
+            } catch (NotFoundException $e) {
+                $this->assertSame('Not Found', $e->getMessage());
+                $this->assertSame('ORDER_NOT_FOUND', $e->errorCode());
+            }
+        }
+
+        // "0" is a real message, not an absent one.
+        $body = ['detail' => ['message' => '0']];
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('0', $e->getMessage());
+        }
+    }
+
+    public function test_object_detail_message_is_pan_scrubbed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => [
+            'message' => 'no order for card 4111111111111111',
+            'code' => 'ORDER_NOT_FOUND',
+        ]], 404)]);
+
+        try {
+            Wlcm::partner()->get('/orders/1/status');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('no order for card 411111***1111', $e->getMessage());
         }
     }
 
@@ -374,8 +537,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Constructed, not verbatim: pairs a field-level loc with the parent-dict `input` Pydantic
-    // sends for `missing`, so one fixture covers the keyed-recursion arm.
+    // Constructed, not verbatim: pairs field-level loc with parent-dict `input` Pydantic
+    // sends for `missing`, so one fixture covers keyed-recursion arm.
     public function test_thrown_exception_body_is_masked(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -408,7 +571,7 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // A field-level rejection echoes the bare failing value under `input`, where no key names it.
+    // Field-level rejection echoes bare failing value under `input`, where no key names it.
     public function test_bare_pan_echo_in_detail_input_is_masked(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
@@ -476,8 +639,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Byte 500 of this page lands inside a two-byte codepoint; a blind cut leaves the body
-    // unencodable, and json_encode of the exception context then fails wholesale.
+    // Byte 500 of this page lands inside two-byte codepoint; blind cut leaves body
+    // unencodable, then json_encode of exception context fails wholesale.
     public function test_thrown_exception_string_body_stays_valid_utf8(): void
     {
         $page = '<html><h1>502 Bad Gateway</h1><p>'
@@ -683,8 +846,8 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
-    // Scrubbing shortens the body, so a PAN sitting past byte 500 in the raw page still lands
-    // inside the 500 kept bytes. Whatever window the scan reads has to cover it whole.
+    // Scrubbing shortens body, so PAN past byte 500 in raw page still lands inside
+    // the 500 kept bytes. Scan window must cover it whole.
     public function test_pan_pulled_under_the_cut_by_earlier_scrubs_leaves_no_raw_digit_run(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(
@@ -728,6 +891,93 @@ final class ErrorMappingTest extends TestCase
         }
     }
 
+    // Merchant free-text rides two GET query params, and exception context is what
+    // Laravel's default handler writes to the merchant's own log.
+    public function test_pan_in_a_query_string_is_scrubbed_from_the_exception_request_path(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found'], 404)]);
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'order for card 4111111111111111');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertIsString($e->requestPath);
+            $this->assertStringContainsString('411111***1111', $e->requestPath);
+            $this->assertStringNotContainsString('4111111111111111', $e->requestPath);
+        }
+    }
+
+    public function test_pan_in_a_query_string_is_scrubbed_from_the_transport_failure_request_path(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::sequence()
+            ->pushFailedConnection()
+            ->pushFailedConnection()
+            ->pushFailedConnection()]);
+
+        try {
+            Wlcm::partner()->subscriptions()->findByExternalOrderId('order for card 4111111111111111');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertIsString($e->requestPath);
+            $this->assertStringContainsString('411111***1111', $e->requestPath);
+            $this->assertStringNotContainsString('4111111111111111', $e->requestPath);
+        }
+    }
+
+    // Guzzle appends " for {uri}" to every cURL error, so the transport message
+    // carries the query string a second time.
+    public function test_pan_in_a_transport_error_message_is_scrubbed(): void
+    {
+        $url = 'https://api.wlcm.test/api/v1/fiscalization?external_id=order+for+card+4111111111111111';
+        Http::fake(fn () => throw new HttpConnectionException(
+            "cURL error 6: Could not resolve host: api.wlcm.test (see https://curl.se/libcurl/c/libcurl-errors.html) for {$url}",
+        ));
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'order for card 4111111111111111');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertStringContainsString('411111***1111', $e->getMessage());
+            $this->assertStringNotContainsString('4111111111111111', $e->getMessage());
+        }
+    }
+
+    public function test_ordinary_transport_error_messages_survive_the_scrub(): void
+    {
+        Http::fake(fn () => throw new HttpConnectionException('cURL error 28: Operation timed out after 15000 milliseconds'));
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected ConnectionException');
+        } catch (ConnectionException $e) {
+            $this->assertSame('cURL error 28: Operation timed out after 15000 milliseconds', $e->getMessage());
+        }
+    }
+
+    public function test_ordinary_request_paths_survive_the_exception_scrub(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'Not found'], 404)]);
+
+        foreach ([
+            '/payments/7788/split' => 'https://api.wlcm.test/api/v1/payments/7788/split',
+            '/partners/me' => 'https://api.wlcm.test/api/v1/partners/me',
+        ] as $path => $expected) {
+            try {
+                Wlcm::partner()->get($path);
+                $this->fail('expected NotFoundException');
+            } catch (NotFoundException $e) {
+                $this->assertSame($expected, $e->requestPath);
+            }
+        }
+
+        try {
+            Wlcm::partner()->fiscalization()->get(externalId: 'ORD-7');
+            $this->fail('expected NotFoundException');
+        } catch (NotFoundException $e) {
+            $this->assertSame('https://api.wlcm.test/api/v1/fiscalization?external_id=ORD-7', $e->requestPath);
+        }
+    }
+
     public function test_successful_empty_object_body_still_returns_array(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response('{}', 200)]);
@@ -735,5 +985,54 @@ final class ErrorMappingTest extends TestCase
         $status = Wlcm::partner()->orders()->status(410);
 
         $this->assertFalse($status->isPaid);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>}>
+     *
+     * Both code guards were anchored with `$`, which PCRE matches before a final newline —
+     * the same drift `Tiyin::fromSumString` carries a `\z` and a comment to prevent, and
+     * the fourth instance of it found in this codebase.
+     *
+     * The consequence is not cosmetic. A trailing newline slips the guard, so `errorCode()`
+     * returns "invalid_otp\n": a merchant comparing it to 'invalid_otp' fails, and
+     * `errorCodeEnum()` cannot resolve a code the package genuinely knows, dropping their
+     * `match` into its default arm. It also defeats the guards' own stated purpose, which
+     * is to stop server prose masquerading as a machine code.
+     */
+    public static function newlineBearingCodes(): array
+    {
+        return [
+            'dict detail code' => [['detail' => ['code' => "INVALID_OTP\n", 'message' => 'bad otp']]],
+            'bare snake detail' => [['detail' => "invalid_otp\n"]],
+        ];
+    }
+
+    /** @param array<string, mixed> $body */
+    #[DataProvider('newlineBearingCodes')]
+    public function test_a_code_with_a_trailing_newline_is_not_accepted_as_a_code(array $body): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response($body, 400)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected a WlcmException');
+        } catch (WlcmException $e) {
+            $this->assertNull($e->errorCode(), 'a newline-bearing string was accepted as a machine code');
+        }
+    }
+
+    // The other half: a clean code still resolves, guard included.
+    public function test_a_clean_bare_snake_detail_is_still_a_code(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['detail' => 'invalid_otp'], 400)]);
+
+        try {
+            Wlcm::partner()->get('/partners/me');
+            $this->fail('expected a WlcmException');
+        } catch (WlcmException $e) {
+            $this->assertSame('invalid_otp', $e->errorCode());
+            $this->assertSame(WlcmErrorCode::InvalidOtp, $e->errorCodeEnum());
+        }
     }
 }

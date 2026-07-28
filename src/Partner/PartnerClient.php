@@ -134,7 +134,8 @@ final class PartnerClient
         } catch (HttpConnectionException $e) {
             $this->logStore->out($this->connectionName, 'partner', $method, $url, $this->maskedBody($body), null, null, $this->elapsedMs($started), result: 'error');
 
-            throw new ConnectionException($e->getMessage(), $this->connectionName, $method, $url, previous: $e);
+            // Guzzle appends " for {uri}" to every cURL error, so the query rides the message too.
+            throw new ConnectionException(Masker::scrubPans($e->getMessage()), $this->connectionName, $method, Masker::scrubPans($url), previous: $e);
         }
 
         $durationMs = $this->elapsedMs($started);
@@ -150,14 +151,16 @@ final class PartnerClient
             $transactionId = $json['transaction_id'] ?? null;
 
             $ids = [
-                'external_id' => is_scalar($externalId) ? (string) $externalId : null,
-                'order_id' => is_scalar($orderId) ? (string) $orderId : null,
-                'payment_id' => is_scalar($paymentId) ? (string) $paymentId : null,
-                'transaction_id' => is_scalar($transactionId) ? (string) $transactionId : null,
+                'external_id' => $this->maskedId($externalId),
+                // Server-minted, so no merchant prose can hide in them. Scrubbing would
+                // only mangle a luhn-coincident id and break the log-to-transaction join.
+                'order_id' => $this->rawId($orderId),
+                'payment_id' => $this->rawId($paymentId),
+                'transaction_id' => $this->rawId($transactionId),
             ];
         }
 
-        // A bare-scalar body reaches custom log stores untouched, so it is scrubbed like any prose.
+        // Bare scalar reaches custom log stores untouched, so scrub here. String/int only; float/bool pass raw.
         $loggedBody = match (true) {
             is_array($json) => Masker::scrubProse(Masker::mask(ErrorMapper::maskDetailInputs($json))),
             is_string($json) => Masker::scrubPans($json),
@@ -195,9 +198,20 @@ final class PartnerClient
         }
 
         /** @var array<string, mixed> $masked */
-        $masked = Masker::mask($decoded);
+        $masked = Masker::scrubProse(Masker::mask($decoded));
 
         return $masked;
+    }
+
+    // Upstream echoes merchant free-text back into the reference, so it needs the body scrub too.
+    private function maskedId(mixed $value): ?string
+    {
+        return is_scalar($value) ? Masker::scrubPans((string) $value) : null;
+    }
+
+    private function rawId(mixed $value): ?string
+    {
+        return is_scalar($value) ? (string) $value : null;
     }
 
     private function elapsedMs(int|float $startedNs): int

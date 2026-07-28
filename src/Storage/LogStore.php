@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Storage;
 
 /**
- * Producers mask before calling: implementations receive pre-masked data and persist it verbatim.
+ * Producers mask before calling: implementations receive pre-masked data, persist verbatim.
  * Never feed raw request/response bodies here.
  */
 interface LogStore
@@ -27,6 +27,14 @@ interface LogStore
         string $result = 'ok',
     ): void;
 
-    /** @param array<string, mixed> $payload */
-    public function webhook(string $connection, array $payload, string $result): void;
+    /**
+     * $payload is the scrubbed blob to persist. $ids carries the correlation columns
+     * derived from the RAW delivery — server ids byte-intact, reference scrubbed —
+     * because the blob's whole-body scrub mangles a luhn-coincident server id.
+     * Omit $ids and they fall back to the blob, which is the old lossy behaviour.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, string|null>  $ids
+     */
+    public function webhook(string $connection, array $payload, string $result, array $ids = []): void;
 }

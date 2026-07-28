@@ -42,7 +42,7 @@ final readonly class Subscriptions
         return Subscription::fromArray($result);
     }
 
-    // Server quirk: lookup by external order id goes through sub id 0 plus query param.
+    // Server quirk: lookup by external order id goes through sub id 0 + query param.
     public function findByExternalOrderId(string $externalOrderId): Subscription
     {
         $result = $this->client->get('/subscriptions/0', ['external_order_id' => $externalOrderId]);
@@ -62,7 +62,7 @@ final readonly class Subscriptions
         return SubscriptionChargeResult::fromArray($result);
     }
 
-    // Live-verified: cancel returns the full subscription object with status=cancelled.
+    // Live-verified: cancel returns full subscription object, status=cancelled.
     public function cancel(int $subscriptionId): Subscription
     {
         $result = $this->client->post("/subscriptions/{$subscriptionId}/cancel");
@@ -71,7 +71,7 @@ final readonly class Subscriptions
         return Subscription::fromArray($result);
     }
 
-    // Card attach/confirm/activate are end-user calls: unsigned, no partner auth.
+    // Card attach/confirm/activate = end-user calls: unsigned, no partner auth.
     public function attachCard(int $subscriptionId, string $cardNumber, string $expireDate, ?string $phoneNumber = null): SubscriptionCardAttached
     {
         $payload = array_filter([
@@ -87,7 +87,7 @@ final readonly class Subscriptions
     }
 
     /**
-     * Raw passthrough: docs cover the request only, the confirm ack body is undocumented.
+     * Raw passthrough: docs cover request only; confirm ack body undocumented.
      *
      * @return array<string, mixed>
      */
@@ -102,8 +102,8 @@ final readonly class Subscriptions
     }
 
     /**
-     * Raw passthrough: docs cover the request only, the activate ack body is undocumented;
-     * read state back with get().
+     * Raw passthrough: docs cover request only; activate ack body undocumented.
+     * Read state back with get().
      *
      * @return array<string, mixed>
      */

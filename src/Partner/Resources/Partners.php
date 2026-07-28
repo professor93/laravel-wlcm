@@ -12,7 +12,7 @@ use Uzbek\Wlcm\Partner\PartnerClient;
  */
 final readonly class Partners
 {
-    // Sandbox-verified: docs code examples sign /integrations/me, which 404s.
+    // Sandbox-verified: docs examples sign /integrations/me, which 404s.
     public const string ME_PATH = '/partners/me';
 
     public function __construct(private PartnerClient $client) {}

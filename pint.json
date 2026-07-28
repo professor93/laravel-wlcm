@@ -1,5 +1,8 @@
 {
     "preset": "laravel",
+    "exclude": [
+        "e2e"
+    ],
     "rules": {
         "declare_strict_types": true
     }

@@ -11,10 +11,16 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property string|null $external_id
+ * @property string|null $order_id
  * @property string|null $payment_id
+ * @property string|null $transaction_id
+ * @property string|null $delivery_key
+ * @property string|null $dispatch_token
+ * @property Carbon|null $claimed_at
  * @property int $amount_tiyin
  * @property int|null $state
  * @property Carbon|null $processed_at
+ * @property array<string, mixed>|null $meta
  */
 final class WlcmTransaction extends Model
 {
@@ -28,6 +34,7 @@ final class WlcmTransaction extends Model
         'meta' => 'array',
         'amount_tiyin' => 'integer',
         'state' => 'integer',
+        'claimed_at' => 'datetime',
         'processed_at' => 'datetime',
     ];
 
@@ -46,7 +53,7 @@ final class WlcmTransaction extends Model
         }
 
         if ($abandonedBefore instanceof Carbon) {
-            // A claimed row (payment_id or delivery_key set) is a crashed dispatch, never reapable.
+            // Claimed row (payment_id/delivery_key set) = crashed dispatch. Never reap.
             $query->orWhere(fn (Builder $window) => $window
                 ->whereNull('processed_at')
                 ->whereNull('payment_id')

@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 
 /**
- * Call once per test: the first call's stubs, including the catch-all,
- * take precedence over any later Http::fake()/Wlcm::fake() calls.
+ * Call once per test: first call's stubs, including catch-all, take
+ * precedence over any later Http::fake()/Wlcm::fake() call.
  */
 final class WlcmFake
 {
@@ -54,22 +54,35 @@ final class WlcmFake
         ]);
     }
 
-    // Fresh installs have no WLCM env vars; without these the client dies on
-    // MissingConfigurationException before a stub is ever consulted.
+    // Fresh installs have no WLCM env vars; without these client dies on
+    // MissingConfigurationException before any stub is consulted.
     private function fillMissingCredentials(): void
     {
         $default = Config::get('wlcm.default', 'main');
         /** @var WlcmJsonScalar $default */
         $connection = (string) $default;
 
+        // Read and write by array key: a dotted connection name in a config path
+        // would fill a block nobody reads.
+        $connections = Config::get('wlcm.connections');
+        $connections = is_array($connections) ? $connections : [];
+        $block = $connections[$connection] ?? null;
+        $block = is_array($block) ? $block : [];
+        $partner = $block['partner'] ?? null;
+        $partner = is_array($partner) ? $partner : [];
+
         foreach (self::DUMMY_CREDENTIALS as $key => $value) {
-            $path = "wlcm.connections.{$connection}.partner.{$key}";
-            $current = Config::get($path);
+            $current = $partner[$key] ?? null;
 
             if (! is_string($current) || $current === '') {
-                Config::set($path, $value);
+                $partner[$key] = $value;
             }
         }
+
+        $block['partner'] = $partner;
+        $connections[$connection] = $block;
+
+        Config::set('wlcm.connections', $connections);
     }
 
     public function assertSent(callable $filter): void

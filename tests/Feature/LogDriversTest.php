@@ -194,6 +194,69 @@ final class LogDriversTest extends TestCase
         return $data;
     }
 
+    /** @return array<string, int|string> */
+    private function subscriptionWebhookData(): array
+    {
+        $data = [
+            'event' => 'subscription.charged', 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ];
+        $data['signature'] = hash_hmac('sha256', 'order-1001:subscription.charged:1745740800000', 'whsec_test');
+
+        return $data;
+    }
+
+    public function test_database_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $row = WlcmLog::sole();
+        $this->assertSame('order-1001', $row->external_id);
+        $this->assertNull($row->order_id);
+        $this->assertNull($row->payment_id);
+    }
+
+    public function test_file_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        $path = $this->useFileDriver();
+
+        $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+
+        $entry = $this->lines($path)[0];
+        $this->assertSame('order-1001', $entry['external_id']);
+        $this->assertNull($entry['order_id']);
+        $this->assertNull($entry['payment_id']);
+    }
+
+    public function test_log_driver_files_a_subscription_delivery_under_its_own_id(): void
+    {
+        config(['wlcm.storage.logs' => 'log']);
+
+        $logged = $this->captureLogContexts(function (): void {
+            $this->postJson('/wlcm/webhook', $this->subscriptionWebhookData())->assertOk();
+        });
+
+        $this->assertCount(1, $logged);
+        $this->assertSame('order-1001', $logged[0]['context']['external_id']);
+        $this->assertNull($logged[0]['context']['order_id']);
+        $this->assertNull($logged[0]['context']['payment_id']);
+    }
+
+    public function test_payment_deliveries_keep_filing_under_the_payment_ids(): void
+    {
+        config(['wlcm.storage.logs' => 'database']);
+
+        $this->postJson('/wlcm/webhook', $this->webhookData())->assertOk();
+
+        $row = WlcmLog::sole();
+        $this->assertSame('ORD-1', $row->external_id);
+        $this->assertSame('1254', $row->order_id);
+        $this->assertSame('7788', $row->payment_id);
+    }
+
     public function test_true_resolves_the_database_driver(): void
     {
         config(['wlcm.storage.logs' => true]);
@@ -612,14 +675,30 @@ final class LogDriversTest extends TestCase
         return $keys;
     }
 
-    public function test_database_driver_stays_silent_while_another_driver_is_selected(): void
+    /**
+     * TRADE RECORDED, not an oversight. This used to assert that a driver instance stays
+     * silent whenever a DIFFERENT driver is configured — and that self-disqualification
+     * is precisely what discarded the whole audit trail on a runtime driver flip. A
+     * driver cannot tell "I was resolved and the config moved under me" from "I am not
+     * the chosen one"; the two readings are the same condition, so one had to go.
+     *
+     * What is kept: silence is governed by the on/off toggle, which is the case that
+     * actually reaches production, since the container resolves exactly one driver.
+     * What is given up: hand-constructing a second driver alongside the resolved one now
+     * writes through both. Nothing in the package does that.
+     */
+    public function test_a_driver_writes_on_the_toggle_not_on_driver_identity(): void
     {
         $this->useFileDriver();
         $this->fakeCheckout();
 
+        // Another driver is selected, but logging is ON: the instance you hold writes.
         (new DatabaseLogStore)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+        $this->assertSame(1, WlcmLog::query()->count());
 
-        $this->assertSame(0, WlcmLog::query()->count());
+        config(['wlcm.storage.logs' => false]);
+        (new DatabaseLogStore)->out('main', 'partner', 'POST', 'https://api.wlcm.test/x', null, null, 200, 1);
+        $this->assertSame(1, WlcmLog::query()->count(), 'a disabled sink still wrote');
     }
 
     public function test_runtime_toggle_off_and_on_still_works(): void
@@ -637,7 +716,16 @@ final class LogDriversTest extends TestCase
         $this->assertCount(1, $this->lines($path));
     }
 
-    public function test_driver_switch_after_resolution_needs_a_rebind(): void
+    /**
+     * A driver switch after resolution still needs a rebind to take EFFECT — but the
+     * resolved driver keeps writing, it does not go silent.
+     *
+     * This test previously asserted the opposite, that nothing was written anywhere. That
+     * was pinning the defect: each driver asked "am I the configured driver" and
+     * disqualified itself, so a flip in a warm process discarded the whole audit trail
+     * with no error. The assertion is inverted here on purpose.
+     */
+    public function test_a_driver_switch_after_resolution_keeps_the_resolved_driver(): void
     {
         $path = $this->useFileDriver();
         $this->fakeCheckout();
@@ -646,7 +734,53 @@ final class LogDriversTest extends TestCase
         config(['wlcm.storage.logs' => 'log']);
         $logged = $this->captureLogContexts(fn () => $this->checkout());
 
-        $this->assertFileDoesNotExist($path);
+        // The resolved file driver still writes...
+        $this->assertFileExists($path);
+        // ...and the newly named channel driver is still not used, which is the half of
+        // the old claim that was true.
         $this->assertSame([], $logged);
+    }
+
+    /**
+     * The appended `failed` verdict exists because the file and log-channel drivers are
+     * append-only and cannot revise an entry. That argument is only worth anything if the
+     * channel driver actually receives both records.
+     */
+    public function test_a_failed_dispatch_records_both_verdicts_on_the_log_channel(): void
+    {
+        config([
+            'wlcm.storage.logs' => 'log',
+            'wlcm.storage.transactions' => true,
+            'wlcm.webhook.handler' => ThrowingWebhookHandler::class,
+        ]);
+
+        $results = [];
+        Log::listen(function (MessageLogged $message) use (&$results): void {
+            $context = $message->context;
+
+            if (($context['direction'] ?? null) === 'webhook') {
+                $results[] = $context['result'] ?? null;
+            }
+        });
+
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => '7788',
+            'amount' => '1200.00', 'state' => '2', 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', '1254:7788:2:2026-07-24 12:00:00', 'whsec_test');
+
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $data);
+            $this->fail('expected the handler throw to surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->withExceptionHandling();
+
+        $this->assertSame(['ok', 'failed'], $results, 'the channel driver did not receive both verdicts');
     }
 }

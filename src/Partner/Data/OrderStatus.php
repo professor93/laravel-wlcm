@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm\Partner\Data;
 
+use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Enums\PaymentState;
 use Uzbek\Wlcm\Support\Tiyin;
 
@@ -38,7 +39,7 @@ final readonly class OrderStatus
     /** @param OrderStatusShape $data */
     public static function fromArray(array $data): self
     {
-        // Paid responses drop the top-level state; status_explanation.state (string) still carries it.
+        // Paid responses drop top-level state; status_explanation.state (string) still carries it.
         $stateRaw = $data['state'] ?? null;
 
         if ($stateRaw === null) {
@@ -75,7 +76,15 @@ final readonly class OrderStatus
         return $this->state === null ? null : PaymentState::tryFrom($this->state);
     }
 
-    // Server sends SUM as a JSON float; pin to two decimals as a string, then digit math.
+    // `gateway` is the provider that took the money. Every observed value is lower case
+    // (mock_payme, mock_click), unlike the display-cased catalogue; resolved case-
+    // insensitively so it does not matter which the server sends.
+    public function gatewayEnum(): ?PaymentProvider
+    {
+        return $this->gateway === null ? null : PaymentProvider::fromName($this->gateway);
+    }
+
+    // Server sends SUM as JSON float; pin to 2 decimals as string, then digit math.
     public function amountTiyin(): int
     {
         return Tiyin::fromSumString(number_format($this->amount, 2, '.', ''));

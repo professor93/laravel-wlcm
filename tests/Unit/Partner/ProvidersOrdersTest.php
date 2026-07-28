@@ -81,7 +81,7 @@ final class ProvidersOrdersTest extends TestCase
 
     public function test_order_status(): void
     {
-        // Live sandbox response, verbatim: amount is a SUM float.
+        // Live sandbox response, verbatim: amount is SUM float.
         Http::fake(['api.wlcm.test/*' => Http::response([
             'order_id' => 410, 'amount' => 1000.0, 'status' => "To'lov jarayonda", 'state' => 1,
             'is_paid' => false, 'is_pending' => true, 'is_cancelled' => false, 'is_completed' => false,

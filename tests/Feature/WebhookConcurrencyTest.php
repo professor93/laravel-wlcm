@@ -1,0 +1,634 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Uzbek\Wlcm\Tests\Feature;
+
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Testing\PendingCommand;
+use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
+use Uzbek\Wlcm\Events\PaymentSucceeded;
+use Uzbek\Wlcm\Events\WebhookReceived;
+use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Exceptions\WebhookClaimException;
+use Uzbek\Wlcm\Models\WlcmLog;
+use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Storage\LogStore;
+use Uzbek\Wlcm\Storage\TransactionStore;
+use Uzbek\Wlcm\Storage\WebhookOutcome;
+use Uzbek\Wlcm\Tests\TestCase;
+use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
+use Uzbek\Wlcm\Webhooks\WebhookController;
+use Uzbek\Wlcm\Webhooks\WebhookPayload;
+use Uzbek\Wlcm\Webhooks\WlcmWebhookHandler;
+
+final class WebhookConcurrencyTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    protected function defineDatabaseMigrations(): void
+    {
+        $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+    }
+
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        $app['config']->set('wlcm.storage.logs', true);
+        $app['config']->set('wlcm.storage.transactions', true);
+    }
+
+    private function payload(string $state, string $paymentId = '7788'): WebhookPayload
+    {
+        return WebhookPayload::fromArray([
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => $paymentId,
+            'amount' => '1200.00', 'state' => $state, 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ], 'main');
+    }
+
+    /** @return array<string, string> */
+    private function signed(string $state, string $paymentId = '7788'): array
+    {
+        $data = [
+            'external_id' => 'ORD-1', 'order_id' => '1254', 'payment_id' => $paymentId,
+            'amount' => '1200.00', 'state' => $state, 'provider' => 'payme',
+            'timestamp' => '2026-07-24 12:00:00',
+        ];
+        $data['signature'] = hash_hmac('sha256', "1254:{$paymentId}:{$state}:{$data['timestamp']}", 'whsec_test');
+
+        return $data;
+    }
+
+    private function subscription(string $event = 'subscription.charged'): SubscriptionWebhookPayload
+    {
+        return SubscriptionWebhookPayload::fromArray([
+            'event' => $event, 'external_order_id' => 'order-1001',
+            'external_user_id' => 'user-1001', 'subscription_id' => 8,
+            'amount' => '49900.00', 'status' => 'active', 'timestamp' => 1745740800000,
+        ], 'main');
+    }
+
+    /**
+     * A slow dispatch must not stamp a row that has moved on to a newer delivery.
+     * Otherwise the newer delivery's own redelivery reads as processed and its event
+     * never fires again — a payment notification lost with no error anywhere.
+     */
+    public function test_a_late_finisher_cannot_stamp_the_claim_that_replaced_it(): void
+    {
+        $store = app(TransactionStore::class);
+
+        // D1 claims and begins dispatching; its handler is slow.
+        $store->applyWebhook($this->payload('1'), 'tok-a');
+
+        // D2 (the success) arrives mid-flight, legitimately transitions the row, and
+        // begins its own dispatch.
+        $store->applyWebhook($this->payload('2'), 'tok-b');
+
+        // D1's handler finally returns and stamps what is now D2's row.
+        $store->markProcessed($this->payload('1'), 'tok-a');
+
+        $this->assertNull(
+            WlcmTransaction::sole()->processed_at,
+            'a finished dispatch stamped a claim that belongs to a later delivery',
+        );
+
+        // And the row that D2 still owns must not read as already handled.
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    public function test_a_partner_delivery_already_being_dispatched_is_not_fresh(): void
+    {
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-a'));
+
+        // No markProcessed: the first dispatch is still inside the handler.
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+    }
+
+    public function test_a_subscription_delivery_already_being_dispatched_is_not_fresh(): void
+    {
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->claimSubscription($this->subscription(), 'tok-a'));
+        $this->assertSame(WebhookOutcome::InFlight, $store->claimSubscription($this->subscription(), 'tok-b'));
+    }
+
+    public function test_a_backward_state_cannot_re_dispatch_an_in_flight_delivery(): void
+    {
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('0'), 'tok-a'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('1'), 'tok-b'));
+
+        // Going back down the ladder is a replay. Allowing it lets two states ping-pong
+        // the row and re-dispatch whatever is still in flight on it.
+        $this->assertSame(WebhookOutcome::Stale, $store->applyWebhook($this->payload('0'), 'tok-c'));
+    }
+
+    /**
+     * WLCM has been observed emitting states its own docs do not list. Admitting one
+     * unconditionally let it walk a settled payment back off its terminal rung, and the
+     * money state could then be dispatched all over again.
+     */
+    public function test_an_unmodelled_state_cannot_reopen_a_terminal_row(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+        $store->markProcessed($this->payload('2'), 'tok-a');
+
+        $this->assertSame(WebhookOutcome::Stale, $store->applyWebhook($this->payload('7'), 'tok-b'));
+        $this->assertSame(WebhookOutcome::Duplicate, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    public function test_a_replay_through_an_unmodelled_state_cannot_re_fire_the_money_event(): void
+    {
+        $succeeded = 0;
+        Event::listen(PaymentSucceeded::class, function () use (&$succeeded): void {
+            $succeeded++;
+        });
+
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+        $this->postJson('/wlcm/webhook', $this->signed('7'))->assertOk();
+        // The replay the freshness window explicitly permits.
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+
+        $this->assertSame(1, $succeeded, 'one payment dispatched PaymentSucceeded twice');
+    }
+
+    // The ladder must still not refuse states we do not model — only stop them being a
+    // way back out of a settled row.
+    public function test_an_unmodelled_state_still_advances_a_live_row(): void
+    {
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('0'), 'tok-a'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('7'), 'tok-b'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    /**
+     * Claims are stored and compared as naive local time, so changing the app timezone
+     * puts the write and the read on different clocks. A seconds-old claim then reads
+     * hours stale, `deadClaim()` hands it to a second worker, and the money event fires
+     * twice — the same class as the second-resolution bug: two values compared that were
+     * never on the same clock.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function shiftedTimezones(): array
+    {
+        return ['ahead' => ['Asia/Tashkent'], 'behind' => ['America/Los_Angeles']];
+    }
+
+    #[DataProvider('shiftedTimezones')]
+    public function test_a_claim_survives_an_app_timezone_change(string $timezone): void
+    {
+        config(['app.timezone' => 'UTC']);
+        date_default_timezone_set('UTC');
+
+        $store = app(TransactionStore::class);
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-a'));
+
+        // Same process, same seconds-old claim, different configured timezone.
+        config(['app.timezone' => $timezone]);
+        date_default_timezone_set($timezone);
+
+        try {
+            $this->assertSame(
+                WebhookOutcome::InFlight,
+                $store->applyWebhook($this->payload('2'), 'tok-b'),
+                'a seconds-old claim was reclaimed after a timezone change',
+            );
+        } finally {
+            date_default_timezone_set('UTC');
+        }
+    }
+
+    public function test_a_hard_killed_claim_is_only_retaken_after_the_lease(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+        $store->markProcessed($this->payload('2'), 'tok-a');
+
+        // A worker that died outright: claimed, never released, never stamped.
+        WlcmTransaction::sole()->update([
+            'processed_at' => null, 'dispatch_token' => 'ghost', 'claimed_at' => now(),
+        ]);
+
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+
+        WlcmTransaction::sole()->update(['claimed_at' => now()->subMinutes(5)]);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    /**
+     * Sub-second precision is dropped on both the write and the WHERE binding
+     * (Grammar::getDateFormat is 'Y-m-d H:i:s', and both columns are second-resolution),
+     * so two workers milliseconds apart can land on opposite sides of a second boundary.
+     * The loser then reads the winner's live claim as future-dated and steals it. Not an
+     * engine quirk — the truncation happens in php, so every engine can do this.
+     */
+    public function test_a_claim_stamped_across_a_second_boundary_is_not_stolen(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        $store = app(TransactionStore::class);
+
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+        // The winner stamped one tick later than the loser's own frozen $now.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSecond()]);
+
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+    }
+
+    public function test_a_subscription_claim_across_a_second_boundary_is_not_stolen(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        $store = app(TransactionStore::class);
+
+        $store->claimSubscription($this->subscription(), 'tok-a');
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSecond()]);
+
+        $this->assertSame(WebhookOutcome::InFlight, $store->claimSubscription($this->subscription(), 'tok-b'));
+    }
+
+    /**
+     * Pins the horizon itself. Widening it past one lease would let a skewed host hold a
+     * row longer and longer; narrowing it back toward $now re-opens the steal above.
+     */
+    public function test_the_future_clamp_sits_exactly_one_lease_out(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        config(['wlcm.webhook.lease_seconds' => 60]);
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Inside the horizon: still someone's live claim.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSeconds(60)]);
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+
+        // Past it: no clock is that wrong, so the row must be recoverable.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->addSeconds(61)]);
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    /**
+     * A claim that loses its compare-and-swap re-reads and tries again, but the retry is
+     * only worth having if a competing writer can commit in between. Without a wait every
+     * attempt burns inside one sub-millisecond window, and the delivery 500s on a race it
+     * would have won a few milliseconds later.
+     */
+    public function test_a_lost_compare_and_swap_waits_before_trying_again(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('0'), 'tok-a');
+
+        // Stand in for a competitor that moves the row between every read and its CAS,
+        // so the swap can never match and the claim exhausts its budget.
+        $moves = 0;
+        DB::listen(function (QueryExecuted $query) use (&$moves): void {
+            if ($moves >= 20 || ! str_contains($query->sql, 'wlcm_transactions')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'select')) {
+                return;
+            }
+
+            $moves++;
+            DB::table('wlcm_transactions')->where('payment_id', '7788')->update(['state' => 30 + $moves]);
+        });
+
+        $started = hrtime(true);
+
+        try {
+            $store->applyWebhook($this->payload('40'), 'tok-b');
+            $this->fail('expected the claim to contend out');
+        } catch (WebhookClaimException) {
+            $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        }
+
+        // Four waits between five attempts, 5ms minimum each. Pinning the budget rather
+        // than the constant: dropping CLAIM_ATTEMPTS back silently un-measures the rate
+        // that justified raising it.
+        $this->assertGreaterThanOrEqual(
+            20,
+            $elapsedMs,
+            'all five attempts burned inside one window — the retry never gave anyone time to commit',
+        );
+    }
+
+    /**
+     * The losing copy re-reads to classify itself, and the holder can release inside that
+     * gap — a handler throwing is exactly when that happens, en masse. A row that is FREE
+     * at read-back is claimable, not in flight; answering InFlight is terminal at the
+     * caller, so the retry loop never runs and NOBODY dispatches: the releaser aborted and
+     * the loser was told someone else had it.
+     */
+    public function test_a_claim_released_during_the_read_back_is_retaken(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Fire the release into the window: after the loser's compare-and-swap has come
+        // back empty, before it reads the row to decide what that meant.
+        $released = false;
+        DB::listen(function (QueryExecuted $query) use (&$released, $store): void {
+            if ($released || ! str_contains($query->sql, 'dispatch_token')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'update') || ! str_contains($query->sql, '"id" =')) {
+                return;
+            }
+
+            $released = true;
+            $store->releaseClaim($this->payload('2'), 'tok-a');
+        });
+
+        $outcome = $store->applyWebhook($this->payload('2'), 'tok-b');
+
+        $this->assertTrue($released, 'the release never landed in the window, so nothing was proven');
+        $this->assertSame(WebhookOutcome::Fresh, $outcome, 'a free row was answered InFlight and the dispatch was lost');
+    }
+
+    public function test_a_subscription_claim_released_during_the_read_back_is_retaken(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->claimSubscription($this->subscription(), 'tok-a');
+
+        $released = false;
+        DB::listen(function (QueryExecuted $query) use (&$released, $store): void {
+            if ($released || ! str_contains($query->sql, 'dispatch_token') || ! str_contains($query->sql, 'delivery_key')) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'update')) {
+                return;
+            }
+
+            $released = true;
+            $store->releaseSubscriptionClaim($this->subscription(), 'tok-a');
+        });
+
+        $outcome = $store->claimSubscription($this->subscription(), 'tok-b');
+
+        $this->assertTrue($released, 'the release never landed in the window, so nothing was proven');
+        $this->assertSame(WebhookOutcome::Fresh, $outcome, 'a free row was answered InFlight and the dispatch was lost');
+    }
+
+    /**
+     * The mirror of the horizon test, on the expiry end. Truncation floors the stored
+     * stamp, so `<=` would call a claim expired up to a second early and dispatch a
+     * handler that is still running — which is why the predicate uses strict `<`. Only a
+     * claim sitting exactly ON the cutoff tells the two apart, and nothing else in the
+     * suite or the battery ever manufactures one.
+     */
+    public function test_the_expiry_clamp_gives_a_claim_its_full_lease(): void
+    {
+        Carbon::setTestNow('2026-07-26 12:00:00');
+        config(['wlcm.webhook.lease_seconds' => 60]);
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // Exactly one lease old: the lease has been reached, not exceeded. Still live.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->subSeconds(60)]);
+        $this->assertSame(WebhookOutcome::InFlight, $store->applyWebhook($this->payload('2'), 'tok-b'));
+
+        // Past it: recoverable.
+        WlcmTransaction::sole()->update(['claimed_at' => now()->subSeconds(61)]);
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-c'));
+    }
+
+    public function test_a_future_dated_claim_is_dead_not_maximally_fresh(): void
+    {
+        $store = app(TransactionStore::class);
+        $store->applyWebhook($this->payload('2'), 'tok-a');
+
+        // One host with a skewed clock would otherwise suppress this payment for hours.
+        WlcmTransaction::sole()->update([
+            'processed_at' => null, 'dispatch_token' => 'ghost', 'claimed_at' => now()->addHours(5),
+        ]);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-b'));
+    }
+
+    #[DataProvider('badLeaseValues')]
+    public function test_an_unreadable_lease_throws_on_the_first_delivery(mixed $lease): void
+    {
+        config(['wlcm.webhook.lease_seconds' => $lease]);
+
+        $this->expectException(MissingConfigurationException::class);
+        $this->expectExceptionMessage('Missing configuration: wlcm.webhook.lease_seconds');
+
+        app(TransactionStore::class)->applyWebhook($this->payload('2'), 'tok-a');
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function badLeaseValues(): array
+    {
+        return ['word' => ['off'], 'null' => [null], 'zero' => [0], 'negative' => [-1]];
+    }
+
+    /**
+     * The real proof available in-process: a listener re-posts the identical body, so the
+     * second delivery provably lands while the first is still mid-dispatch. Event::fake
+     * cannot be used — the dispatch has to actually run for the re-entry to happen.
+     */
+    public function test_a_delivery_arriving_mid_dispatch_does_not_dispatch_again(): void
+    {
+        $succeeded = 0;
+        $reentered = false;
+
+        Event::listen(PaymentSucceeded::class, function () use (&$succeeded): void {
+            $succeeded++;
+        });
+
+        Event::listen(WebhookReceived::class, function () use (&$reentered): void {
+            if ($reentered) {
+                return; // One shot, or this recurses forever.
+            }
+
+            $reentered = true;
+            $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+        });
+
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+
+        $this->assertTrue($reentered, 'the re-entrant delivery never ran, so nothing was proven');
+        $this->assertSame(1, $succeeded, 'a delivery landing mid-dispatch dispatched a second time');
+        $this->assertSame(1, WlcmLog::query()->where('result', 'inflight')->count());
+    }
+
+    public function test_a_throwing_handler_releases_its_claim_for_the_next_redelivery(): void
+    {
+        $succeeded = 0;
+        Event::listen(PaymentSucceeded::class, function () use (&$succeeded): void {
+            $succeeded++;
+        });
+
+        config(['wlcm.webhook.handler' => ThrowingWebhookHandler::class]);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $this->signed('2'));
+            $this->fail('expected the handler throw to surface');
+        } catch (RuntimeException $e) {
+            $this->assertSame('handler exploded', $e->getMessage());
+        }
+
+        $this->withExceptionHandling();
+
+        $row = WlcmTransaction::sole();
+        $this->assertNull($row->dispatch_token, 'a dead dispatch left its claim held');
+        $this->assertNull($row->claimed_at);
+        $this->assertNull($row->processed_at);
+
+        // No lease wait: the very next redelivery re-runs the whole dispatch.
+        config(['wlcm.webhook.handler' => null]);
+        $this->postJson('/wlcm/webhook', $this->signed('2'))->assertOk();
+        $this->assertSame(2, $succeeded);
+    }
+
+    /**
+     * The 'ok' audit write sits between taking the claim and the first event(). LogStore
+     * swallows and report()s, but README:185 documents that report() itself can throw
+     * when the app's default log channel is down — and that throw must not strand the
+     * claim it is standing next to.
+     */
+    public function test_a_throwing_audit_write_does_not_strand_the_claim(): void
+    {
+        app()->instance(LogStore::class, new ThrowingLogStore);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $this->signed('2'));
+            $this->fail('expected the audit throw to surface');
+        } catch (RuntimeException $e) {
+            $this->assertSame('log channel is down', $e->getMessage());
+        }
+
+        $this->withExceptionHandling();
+
+        $row = WlcmTransaction::sole();
+        $this->assertNull($row->dispatch_token, 'a throwing audit write left the claim held');
+        $this->assertNull($row->claimed_at);
+        $this->assertNull($row->processed_at);
+    }
+
+    /**
+     * `ok` is written before the events fire so a hard kill still leaves an audit row.
+     * That makes it "dispatch began", not "dispatch succeeded" — and a delivery whose
+     * handler threw and returned 500 must not be left described as `ok`.
+     */
+    public function test_a_failed_dispatch_records_its_real_verdict(): void
+    {
+        config(['wlcm.webhook.handler' => ThrowingWebhookHandler::class]);
+        $this->withoutExceptionHandling();
+
+        try {
+            $this->postJson('/wlcm/webhook', $this->signed('2'));
+            $this->fail('expected the handler throw to surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->withExceptionHandling();
+
+        $results = WlcmLog::query()->orderBy('id')->pluck('result')->all();
+        $this->assertSame(['ok', 'failed'], $results, 'a 500ed delivery is still described as ok');
+    }
+
+    /**
+     * DO NOT DELETE THIS AS REDUNDANT. It is the ONLY detector for the `wlcm_data`
+     * loud-failure requirement — no e2e cell can express it, because every HTTP cell goes
+     * through the route and the middleware therefore always sets the attribute, and the
+     * ladder harness sets it itself. A mutation run confirmed that: the mutant returns
+     * 200, writes a transaction row, dispatches, and leaves the audit row with a NULL
+     * payment_id, and no battery on either engine notices.
+     *
+     * A missing `wlcm_payload` already fails loudly. `wlcm_data` defaulted to `[]`, so the
+     * same mistake dispatched the delivery, wrote the transaction row, and emptied only
+     * the audit trail — a failure whose whole signature is silence, which is exactly why
+     * its only guard needs saying out loud. It bit the harness within an hour of shipping.
+     */
+    public function test_a_controller_invoked_without_the_verified_document_fails_loudly(): void
+    {
+        $request = Request::create('/wlcm/webhook', 'POST', [], [], [], [], (string) json_encode($this->signed('2')));
+        $request->attributes->set('wlcm_payload', $this->payload('2'));
+        // wlcm_data deliberately not set, exactly as a direct caller would leave it.
+
+        $this->expectException(MissingConfigurationException::class);
+
+        app(WebhookController::class)($request);
+    }
+
+    public function test_an_empty_required_field_is_refused_before_any_row_exists(): void
+    {
+        $data = $this->signed('2');
+        $data['payment_id'] = '';
+
+        $this->postJson('/wlcm/webhook', $data)->assertStatus(422);
+        $this->assertSame(0, WlcmTransaction::query()->count());
+    }
+
+    public function test_prune_still_refuses_a_claimed_row(): void
+    {
+        config(['wlcm.storage.prune_days' => 1, 'wlcm.storage.stale_days' => 1]);
+
+        WlcmTransaction::query()->create([
+            'connection' => 'main', 'api' => 'partner', 'payment_id' => '7788',
+            'state' => 2, 'dispatch_token' => 'tok-a', 'claimed_at' => now()->subYear(),
+            'processed_at' => null, 'created_at' => now()->subYear(), 'updated_at' => now()->subYear(),
+        ]);
+
+        $command = $this->artisan('model:prune', ['--model' => [WlcmTransaction::class]]);
+        $this->assertInstanceOf(PendingCommand::class, $command);
+        $command->assertExitCode(0);
+        $command->run();
+
+        $this->assertSame(1, WlcmTransaction::query()->count(), 'a claimed dispatch was reaped');
+    }
+
+    public function test_storage_off_leaves_every_claim_fresh(): void
+    {
+        config(['wlcm.storage.transactions' => false]);
+        $store = app(TransactionStore::class);
+
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-a'));
+        $this->assertSame(WebhookOutcome::Fresh, $store->applyWebhook($this->payload('2'), 'tok-b'));
+        $this->assertSame(0, WlcmTransaction::query()->count());
+    }
+}
+
+final class ThrowingWebhookHandler implements WlcmWebhookHandler
+{
+    public function handle(WebhookPayload $payload): void
+    {
+        throw new RuntimeException('handler exploded');
+    }
+}
+
+final class ThrowingLogStore implements LogStore
+{
+    public function out(string $connection, string $api, string $method, string $url, ?array $requestBody, mixed $responseBody, ?int $status, int $durationMs, array $ids = [], string $result = 'ok'): void {}
+
+    public function webhook(string $connection, array $payload, string $result, array $ids = []): void
+    {
+        throw new RuntimeException('log channel is down');
+    }
+}

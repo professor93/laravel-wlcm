@@ -6,7 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 final class Masker
 {
-    // Keys compared separator-less and lowercased: "card_number"/"cardNumber" both hit.
+    // Keys matched separator-less, lowercased: "card_number"/"cardNumber" both hit.
     private const array PAN_KEYS = ['cardnumber', 'number', 'pan', 'hpan'];
 
     private const array STAR_KEYS = ['otp', 'password', 'expiredate'];
@@ -33,7 +33,7 @@ final class Masker
                 continue;
             }
 
-            // Before recursion: PAN hidden in a nested value must never be emitted.
+            // Before recursion: PAN hidden in nested value must never be emitted.
             if ($normalized !== null && in_array($normalized, self::PAN_KEYS, true)) {
                 if (! is_scalar($value)) {
                     $out[$key] = '***';
@@ -73,8 +73,19 @@ final class Masker
      */
     public static function scrubProse(array $data): array
     {
+        // Builds a FRESH array, the way mask() does, and that is load-bearing rather than
+        // stylistic. Rewriting keys in place made the encoding a deletion primitive even
+        // though encodeKey() is injective as a function: iteration A would unset its own
+        // key and write the escaped name into a slot that iteration B then unset, so
+        // `["vat%" => "GENUINE", "vat%25" => "COLLIDER"]` came out as ONE key with
+        // GENUINE gone — no NUL, no attacker, ordinary merchant data. An injective
+        // function applied destructively over its own input is not an injective rewrite.
+        $out = [];
+
         foreach ($data as $key => $value) {
-            $data[$key] = match (true) {
+            $key = is_string($key) ? self::encodeKey($key) : $key;
+
+            $out[$key] = match (true) {
                 is_string($value) => self::scrubPans($value),
                 is_int($value) => ($s = self::scrubPans((string) $value)) === (string) $value ? $value : $s,
                 is_array($value) => self::scrubProse($value),
@@ -82,26 +93,72 @@ final class Masker
             };
         }
 
-        return $data;
+        return $out;
+    }
+
+    /**
+     * Percent-escape `%` and NUL in an object key, injectively.
+     *
+     * A key cannot carry a raw NUL: postgres errors on any json access to the row
+     * (22P05) and mysql stores it, so the two engines disagree about what a delivery
+     * said. Simply stripping it collapsed distinct keys together — measured at arity 3
+     * one field vanished, at arity 4 two did, and a merchant key literally named
+     * `foo~1` was overwritten by the suffix scheme meant to prevent exactly that. An
+     * audit trail that can be made to drop a chosen field with one captured signature
+     * is a deletion primitive, not a cosmetic issue.
+     *
+     * Escaping the escape first makes the FUNCTION injective: distinct inputs cannot
+     * share an output. That is necessary and was not sufficient — applied as an in-place
+     * rewrite it still deleted fields, because an escaped name could land in a slot a
+     * later iteration removed. Injectivity only survives because scrubProse() builds a
+     * fresh array; the two belong together. The cost is that a key containing a literal
+     * `%` is rewritten too — visible and reversible, unlike losing it.
+     */
+    private static function encodeKey(string $key): string
+    {
+        return str_replace("\0", '%00', str_replace('%', '%25', $key));
     }
 
     public static function scrubPans(string $text): string
     {
-        // A run failing Luhn is left whole, never hunted for a passing substring: false-positive control beats exhaustiveness.
-        $scrubbed = preg_replace_callback(
-            '/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/',
-            static function (array $match): string {
-                $run = $match[0];
-                $digits = preg_replace('/\D/', '', $run) ?? $run;
+        // Postgres cannot convert a json value containing an escaped NUL to text —
+        // `request_body::jsonb` and `->>` both error 22P05 — and mysql stores it, so the
+        // blob disagreed with its own id columns once those started stripping. Every
+        // logged string reaches here, so this is where the two surfaces are made to agree.
+        $text = str_replace("\0", '', $text);
 
-                return self::luhn($digits)
-                    ? substr($digits, 0, 6).'***'.substr($digits, -4)
-                    : $run;
-            },
-            $text,
-        );
+        $scrubbed = self::scrubRuns($text, $text);
 
-        return $scrubbed ?? $text;
+        // "%20" before a pan fuses into one luhn-failing run; blanking escape hex frees the pan, same width so offsets hold.
+        // Both still hide a pan: escape inside it (4111%201111...) and "+" separators; view blanks escapes, never decodes.
+        $view = preg_replace('/%[0-9A-Fa-f]{2}/', '%~~', $scrubbed) ?? $scrubbed;
+
+        return $view === $scrubbed ? $scrubbed : self::scrubRuns($scrubbed, $view);
+    }
+
+    /** Runs are found in $view but masked in $text: equal width, differing only outside any run. */
+    private static function scrubRuns(string $text, string $view): string
+    {
+        // Luhn-failing run left whole, never hunted for passing substring: false-positive control beats exhaustiveness.
+        if (! preg_match_all('/(?<![0-9])(?:[0-9]{4}(?:[ -][0-9]{4}){3}|[0-9]{13,19})(?![0-9])/', $view, $matches, PREG_OFFSET_CAPTURE)) {
+            return $text;
+        }
+
+        $out = '';
+        $cursor = 0;
+
+        foreach ($matches[0] as [$run, $offset]) {
+            $digits = preg_replace('/\D/', '', $run) ?? $run;
+
+            if (! self::luhn($digits)) {
+                continue;
+            }
+
+            $out .= substr($text, $cursor, $offset - $cursor).substr($digits, 0, 6).'***'.substr($digits, -4);
+            $cursor = $offset + strlen($run);
+        }
+
+        return $out.substr($text, $cursor);
     }
 
     private static function luhn(string $digits): bool

@@ -39,7 +39,7 @@ final class RequestSigner
             $pairs[] = [urldecode($k), urldecode($v)];
         }
 
-        // strcmp: byte order; spaceship would numeric-compare numeric strings, diverging from python sorted().
+        // strcmp: byte order; spaceship numeric-compares numeric strings, diverging from python sorted().
         usort($pairs, fn (array $a, array $b) => $a[0] === $b[0] ? strcmp($a[1], $b[1]) : strcmp($a[0], $b[0]));
 
         // quote_plus equivalent: rawurlencode keeps ~ literal, then space as +.

@@ -49,7 +49,7 @@ final readonly class Webhooks
     }
 
     /**
-     * Raw passthrough: DELETE acks with no documented body, unlike PATCH which returns the object.
+     * Raw passthrough: DELETE acks with no documented body, unlike PATCH which returns object.
      *
      * @return array<string, mixed>
      */
@@ -63,7 +63,7 @@ final readonly class Webhooks
     {
         $result = $this->client->get("/partners/me/webhooks/{$webhookId}/events");
 
-        // Live history is paginated {count,next,previous,results:[...]}; tolerate a bare list.
+        // Live history paginated {count,next,previous,results:[...]}; tolerate bare list.
         $rows = is_array($result['results'] ?? null) ? $result['results'] : $result;
         $items = array_values(array_filter($rows, is_array(...)));
         /** @var list<array<string, mixed>> $items */

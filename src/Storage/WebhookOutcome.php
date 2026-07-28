@@ -8,5 +8,7 @@ enum WebhookOutcome
 {
     case Fresh;
     case Duplicate;
+    // Another worker holds a live claim on this exact delivery. Not "already done".
+    case InFlight;
     case Stale;
 }
