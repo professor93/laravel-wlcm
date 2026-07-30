@@ -6,6 +6,7 @@ namespace Uzbek\Wlcm\Storage;
 
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\Data\Order;
+use Uzbek\Wlcm\Partner\Data\OrderLink;
 use Uzbek\Wlcm\Webhooks\SubscriptionWebhookPayload;
 use Uzbek\Wlcm\Webhooks\WebhookPayload;
 
@@ -38,4 +39,10 @@ interface TransactionStore
 
     /** @param array<string, mixed> $requestPayload */
     public function recordOrder(string $connection, array $requestPayload, Order $order): void;
+
+    /**
+     * Completes the row recordOrder left behind. A zero-row match is not an error: it
+     * means no order row exists to complete, and a link is not a payment fact of its own.
+     */
+    public function recordOrderLink(string $connection, string $provider, OrderLink $link): void;
 }

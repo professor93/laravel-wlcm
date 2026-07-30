@@ -19,6 +19,7 @@ use Uzbek\Wlcm\Exceptions\WebhookClaimException;
 use Uzbek\Wlcm\Models\WlcmTransaction;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\Data\Order;
+use Uzbek\Wlcm\Partner\Data\OrderLink;
 use Uzbek\Wlcm\Support\CallerTransaction;
 use Uzbek\Wlcm\Support\ConfigToggle;
 use Uzbek\Wlcm\Support\ConnectionConfig;
@@ -190,6 +191,34 @@ final class TransactionRecorder implements TransactionStore
             ]));
         } catch (Throwable $e) {
             // Same posture as recordCheckout: a broken sink must not break the call.
+            report($e);
+        }
+    }
+
+    public function recordOrderLink(string $connection, string $provider, OrderLink $link): void
+    {
+        if (! $this->enabled()) {
+            return;
+        }
+
+        try {
+            WlcmTransaction::query()
+                // Both sides through ColumnFit: recordOrder stored these values cut to
+                // width, so a full-width lookup would never find the row it just wrote.
+                ->where('connection', ColumnFit::value('connection', $connection))
+                ->where('order_id', ColumnFit::value('order_id', (string) $link->orderId))
+                ->update([
+                    'provider' => ColumnFit::value('provider', self::scrubbed($provider)),
+                    // json_encode by hand: the model casts meta to array, but Builder::update()
+                    // drops to the base query builder and applies no casts, so an array here
+                    // would fail to bind.
+                    'meta' => json_encode(
+                        Masker::scrubProse(Masker::mask(['checkout_url' => $link->checkoutUrl])),
+                        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+                    ),
+                ]);
+            // A zero-row update is deliberate: no order row means nothing to complete.
+        } catch (Throwable $e) {
             report($e);
         }
     }
