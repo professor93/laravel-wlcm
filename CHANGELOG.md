@@ -2,6 +2,12 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.2.1] - 2026-07-30
+
+### Fixed
+- `generateLink()` no longer erases what a checkout recorded. `recordOrderLink()` replaced the `meta` column wholesale, so generating a link for an order created by `checkout()->create()` dropped the `cid` stored there — the value needed to correlate a card OTP confirm. `meta` is now merged. Audit-trail loss only; no money path was affected
+- Corrected a false guarantee in the docs: `checkout_url` was documented as derived from the order id alone and therefore stable across a provider switch. It is not — `click` answers `/pay/click/{id}` where `payme` answers `/pay/{id}`, measured live. Always redirect to the URL the most recent `generateLink()` call returned; never cache one across a switch. The 0.2.0 entry below carries the corrected wording
+
 ## [0.2.0] - 2026-07-30
 
 ### Added
