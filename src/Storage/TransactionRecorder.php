@@ -202,22 +202,33 @@ final class TransactionRecorder implements TransactionStore
         }
 
         try {
-            WlcmTransaction::query()
+            // Read-modify-write rather than one UPDATE, because meta must MERGE: an order
+            // reached from checkout()->create() already carries cid there, and replacing
+            // the column wholesale dropped it. Merging in SQL would need per-engine JSON
+            // functions. The race that buys is two concurrent link generations settling
+            // last-write-wins on an audit column — which is what the server does with the
+            // provider anyway.
+            $row = WlcmTransaction::query()
                 // Both sides through ColumnFit: recordOrder stored these values cut to
                 // width, so a full-width lookup would never find the row it just wrote.
                 ->where('connection', ColumnFit::value('connection', $connection))
                 ->where('order_id', ColumnFit::value('order_id', (string) $link->orderId))
-                ->update([
-                    'provider' => ColumnFit::value('provider', self::scrubbed($provider)),
-                    // json_encode by hand: the model casts meta to array, but Builder::update()
-                    // drops to the base query builder and applies no casts, so an array here
-                    // would fail to bind.
-                    'meta' => json_encode(
-                        Masker::scrubProse(Masker::mask(['checkout_url' => $link->checkoutUrl])),
-                        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-                    ),
-                ]);
-            // A zero-row update is deliberate: no order row means nothing to complete.
+                ->first();
+
+            // No order row means nothing to complete. Deliberately not an insert: a link
+            // is not a payment fact of its own.
+            if (! $row instanceof WlcmTransaction) {
+                return;
+            }
+
+            $meta = is_array($row->meta) ? $row->meta : [];
+
+            $row->forceFill([
+                'provider' => ColumnFit::value('provider', self::scrubbed($provider)),
+                // The model casts meta to array, so no hand-rolled json_encode here —
+                // unlike Builder::update(), save() applies casts.
+                'meta' => array_merge($meta, Masker::scrubProse(Masker::mask(['checkout_url' => $link->checkoutUrl]))),
+            ])->save();
         } catch (Throwable $e) {
             report($e);
         }

@@ -7,6 +7,7 @@ namespace Uzbek\Wlcm\Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Uzbek\Wlcm\Models\WlcmTransaction;
+use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\Data\Order;
 use Uzbek\Wlcm\Partner\Data\OrderLink;
 use Uzbek\Wlcm\Storage\TransactionRecorder;
@@ -94,6 +95,33 @@ final class OrderLinkRecordingTest extends TestCase
         $this->recorder()->recordOrderLink($long, 'payme', new OrderLink(661, 'ORD-7', 'https://x.test/pay/661'));
 
         $this->assertSame('payme', WlcmTransaction::query()->sole()->getAttribute('provider'));
+    }
+
+    public function test_it_keeps_what_a_checkout_already_recorded_in_meta(): void
+    {
+        // An order can reach generateLink() from checkout()->create() too, and that path
+        // stores cid — needed to correlate a card OTP confirm. Replacing meta wholesale
+        // dropped it.
+        $this->recorder()->recordCheckout('main', ['amount' => 123400], new CheckoutResponse(
+            orderId: 675,
+            externalId: 'ORD-7',
+            state: 1,
+            checkoutUrl: 'https://sandbox.wlcm.uz/pay/675',
+            message: null,
+            transactionId: 'tx-1',
+            otpSentPhone: null,
+            cid: 'cid-abc',
+        ));
+
+        $this->recorder()->recordOrderLink('main', 'click', new OrderLink(
+            orderId: 675,
+            externalId: 'ORD-7',
+            checkoutUrl: 'https://sandbox.wlcm.uz/pay/click/675',
+        ));
+
+        $meta = WlcmTransaction::query()->sole()->meta;
+        $this->assertSame('cid-abc', $meta['cid'] ?? null);
+        $this->assertSame('https://sandbox.wlcm.uz/pay/click/675', $meta['checkout_url'] ?? null);
     }
 
     public function test_no_matching_order_row_is_a_silent_no_op(): void
