@@ -219,11 +219,15 @@ Unstubbed endpoints throw. The catch-all answers HTTP 500, so `ServerException` 
 
 The filled `webhook_secret` is the published constant `whsec_fake`, so webhook tests running under `fake()` verify signatures against a value printed in this repository — they prove wiring, not secrecy. Set a real secret in config before calling `fake()` when the secret is what you are testing.
 
-Neither order endpoint is stubbed by `fake()`. Stub them explicitly:
+Both order endpoints carry default stubs, and each has its own assertion:
 
 ```php
-Wlcm::fake([
-    '*/integrations/orders' => ['order_id' => 1, 'external_id' => 'ORD-7', 'amount' => 250000, 'status' => 'created'],
-    '*/integrations/generate/link' => ['order_id' => 1, 'external_id' => 'ORD-7', 'checkout_url' => 'https://pay.test/1'],
-]);
+$fake = Wlcm::fake();
+
+Wlcm::partner()->orders()->create(amountTiyin: 250000, externalId: 'ORD-7');
+
+$fake->assertOrderCreated(fn (array $payload): bool => $payload['external_id'] === 'ORD-7');
+$fake->assertLinkGenerated(fn (array $payload): bool => $payload['payment_provider'] === 'payme');
 ```
+
+`assertOrderCreated`, `assertLinkGenerated` and `assertCheckoutCreated` all match on the request path's **suffix**, not a substring — otherwise a read of `/orders/{id}/status` would satisfy an assertion about `/integrations/orders`.

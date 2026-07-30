@@ -70,6 +70,71 @@ final class FakeTest extends TestCase
 
         $this->assertSame('Fake Partner', Wlcm::partner()->partners()->me()->name);
         $this->assertTrue(Wlcm::partner()->payments()->confirmOtp('tx-1', 'cid-1', '111111')->success);
+        $this->assertSame('created', Wlcm::partner()->orders()->create(amountTiyin: 100000)->status);
+        $this->assertNotNull(Wlcm::partner()->orders()->generateLink(
+            provider: 'payme',
+            returnUrl: 'https://shop.test/r',
+            orderId: 1,
+        )->checkoutUrl);
+    }
+
+    public function test_assert_order_created_matches_the_payload(): void
+    {
+        $fake = Wlcm::fake();
+
+        Wlcm::partner()->orders()->create(amountTiyin: 250000, externalId: 'ORD-7');
+
+        $fake->assertOrderCreated(fn (array $payload): bool => $payload['external_id'] === 'ORD-7'
+            && $payload['amount'] === 250000);
+    }
+
+    public function test_assert_order_created_fails_when_filter_rejects(): void
+    {
+        $fake = Wlcm::fake();
+
+        Wlcm::partner()->orders()->create(amountTiyin: 250000, externalId: 'ORD-7');
+
+        $this->expectException(AssertionFailedError::class);
+        $fake->assertOrderCreated(fn (array $payload): bool => $payload['external_id'] === 'nope');
+    }
+
+    public function test_order_status_does_not_satisfy_assert_order_created(): void
+    {
+        // /orders/{id}/status must not be mistaken for /integrations/orders — the
+        // substring match would otherwise pass on a read.
+        $fake = Wlcm::fake(['*/orders/1/status' => [
+            'order_id' => 1, 'amount' => 1000, 'status' => 'x', 'state' => 1,
+            'is_paid' => false, 'is_pending' => true, 'is_cancelled' => false, 'is_completed' => false,
+        ]]);
+
+        Wlcm::partner()->orders()->status(1);
+
+        $this->expectException(AssertionFailedError::class);
+        $fake->assertOrderCreated();
+    }
+
+    public function test_assert_link_generated_matches_the_payload(): void
+    {
+        $fake = Wlcm::fake();
+
+        Wlcm::partner()->orders()->generateLink(
+            provider: 'mock_payme',
+            returnUrl: 'https://shop.test/r',
+            externalId: 'ORD-7',
+        );
+
+        $fake->assertLinkGenerated(fn (array $payload): bool => $payload['payment_provider'] === 'mock_payme'
+            && $payload['external_id'] === 'ORD-7');
+    }
+
+    public function test_assert_link_generated_fails_when_filter_rejects(): void
+    {
+        $fake = Wlcm::fake();
+
+        Wlcm::partner()->orders()->generateLink(provider: 'payme', returnUrl: 'https://shop.test/r', orderId: 1);
+
+        $this->expectException(AssertionFailedError::class);
+        $fake->assertLinkGenerated(fn (array $payload): bool => $payload['payment_provider'] === 'click');
     }
 
     public function test_first_fake_wins_over_a_later_http_fake(): void

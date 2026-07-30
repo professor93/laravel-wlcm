@@ -43,6 +43,12 @@ final class WlcmFake
             '*/integrations/payment/card/confirm' => Http::response([
                 'success' => true, 'order_id' => 1, 'message' => null,
             ]),
+            '*/integrations/orders' => Http::response([
+                'order_id' => 1, 'external_id' => null, 'amount' => 100000, 'status' => 'created',
+            ]),
+            '*/integrations/generate/link' => Http::response([
+                'order_id' => 1, 'external_id' => null, 'checkout_url' => 'https://checkout.fake/wlcm',
+            ]),
             '*/partners/me' => Http::response([
                 'id' => 1, 'name' => 'Fake Partner', 'company_name' => 'Fake Partner LLC',
                 'receipt_item_name' => null, 'email' => 'partner@fake.test', 'phone' => null,
@@ -98,8 +104,28 @@ final class WlcmFake
     /** @param (callable(array<string, mixed>): bool)|null $filter */
     public function assertCheckoutCreated(?callable $filter = null): void
     {
-        Http::assertSent(function (Request $request) use ($filter): bool {
-            if (! str_contains($request->url(), '/integrations/checkout')) {
+        $this->assertPostedTo('/integrations/checkout', $filter);
+    }
+
+    /** @param (callable(array<string, mixed>): bool)|null $filter */
+    public function assertOrderCreated(?callable $filter = null): void
+    {
+        $this->assertPostedTo('/integrations/orders', $filter);
+    }
+
+    /** @param (callable(array<string, mixed>): bool)|null $filter */
+    public function assertLinkGenerated(?callable $filter = null): void
+    {
+        $this->assertPostedTo('/integrations/generate/link', $filter);
+    }
+
+    /** @param (callable(array<string, mixed>): bool)|null $filter */
+    private function assertPostedTo(string $path, ?callable $filter): void
+    {
+        Http::assertSent(function (Request $request) use ($path, $filter): bool {
+            // Path-suffix, not a substring: /orders/{id}/status would otherwise satisfy
+            // an assertion about /integrations/orders.
+            if (! str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), $path)) {
                 return false;
             }
 

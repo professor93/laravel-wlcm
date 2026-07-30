@@ -11,6 +11,8 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 ### Changed
 - BREAKING: `TransactionStore` gains `recordOrder(string $connection, array $requestPayload, Order $order)` and `recordOrderLink(string $connection, string $provider, OrderLink $link)`. `TransactionStore` is a documented rebinding point, so an implementation written against the previous interface will fatal on upgrade
 
+- `Wlcm::fake()` stubs both order endpoints by default and gains `assertOrderCreated()` and `assertLinkGenerated()`. All three checkout-family assertions now match the request path's suffix rather than a substring, so a read of `/orders/{id}/status` no longer satisfies an assertion about `/integrations/orders`
+
 ### Notes
 - A provider-agnostic checkout link is not possible: `payment_provider` is mandatory on the link endpoint and WLCM hosts no provider-selection page, so a single QR code deferring the choice cannot be built against this API. Render your own chooser and call `generateLink()` with the payer's pick
 
