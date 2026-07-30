@@ -125,6 +125,24 @@ final class CallerTransactionTest extends TestCase
         }
     }
 
+    // Same rule again on the link path: the row update runs after WLCM already holds the
+    // provider choice, so a refusal afterwards would leave the audit row disagreeing.
+    public function test_a_provider_link_is_refused_before_anything_is_sent(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'order_id' => 661, 'external_id' => 't-1', 'checkout_url' => 'https://sandbox.wlcm.uz/pay/661',
+        ], 200)]);
+
+        $this->expectException(CallerTransactionException::class);
+        $this->expectExceptionMessage('Nothing was sent');
+
+        try {
+            Wlcm::partner()->orders()->generateLink(provider: 'payme', returnUrl: 'https://shop.test/r', orderId: 661);
+        } finally {
+            Http::assertNothingSent();
+        }
+    }
+
     // Same rule on the order path: recordOrder also runs after the POST, so the refusal
     // has to happen before anything leaves the process.
     public function test_an_order_is_refused_before_anything_is_sent(): void

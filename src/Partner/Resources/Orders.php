@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Partner\Resources;
 
 use Illuminate\Contracts\Config\Repository;
+use Uzbek\Wlcm\Enums\PaymentProvider;
 use Uzbek\Wlcm\Exceptions\CallerTransactionException;
 use Uzbek\Wlcm\Exceptions\InvalidAmountException;
+use Uzbek\Wlcm\Exceptions\InvalidOrderReferenceException;
 use Uzbek\Wlcm\Partner\Data\Order;
+use Uzbek\Wlcm\Partner\Data\OrderLink;
 use Uzbek\Wlcm\Partner\Data\OrderStatus;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\CallerTransaction;
@@ -15,6 +18,7 @@ use Uzbek\Wlcm\Support\CallerTransaction;
 /**
  * @phpstan-import-type OrderStatusShape from OrderStatus
  * @phpstan-import-type OrderShape from Order
+ * @phpstan-import-type OrderLinkShape from OrderLink
  */
 final readonly class Orders
 {
@@ -55,5 +59,53 @@ final readonly class Orders
         $this->client->transactions()->recordOrder($this->client->connectionName, $payload, $order);
 
         return $order;
+    }
+
+    /**
+     * Attaches a provider to an existing order and returns its checkout URL.
+     *
+     * Repeatable: calling again with a different provider switches it, server-side last
+     * call wins, and the URL is the same either way — it is derived from the order id,
+     * not the provider.
+     */
+    public function generateLink(
+        PaymentProvider|string $provider,
+        string $returnUrl,
+        ?int $orderId = null,
+        ?string $externalId = null,
+    ): OrderLink {
+        // The server enforces the same XOR and answers 422. Refusing here saves a round
+        // trip on a payload we can already see is wrong.
+        if (($orderId === null) === ($externalId === null)) {
+            throw InvalidOrderReferenceException::notExactlyOne();
+        }
+
+        $providerName = $provider instanceof PaymentProvider ? $provider->value : $provider;
+
+        $payload = array_filter([
+            'order_id' => $orderId,
+            'external_id' => $externalId,
+            'payment_provider' => $providerName,
+            // Passed through verbatim. The server accepts an empty string with 200 and
+            // the package does not refuse what the platform allows.
+            'return_url' => $returnUrl,
+        ], fn (mixed $v): bool => $v !== null);
+
+        ksort($payload);
+
+        // BEFORE the post, same reason as create(): the row update below runs after WLCM
+        // already holds the provider choice, so refusing afterwards would leave the audit
+        // row disagreeing with the platform.
+        if (CallerTransaction::open(app(Repository::class))) {
+            throw CallerTransactionException::order();
+        }
+
+        $result = $this->client->post('/integrations/generate/link', $payload);
+        /** @var OrderLinkShape $result */
+        $link = OrderLink::fromArray($result);
+
+        $this->client->transactions()->recordOrderLink($this->client->connectionName, $providerName, $link);
+
+        return $link;
     }
 }
