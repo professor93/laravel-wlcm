@@ -33,6 +33,10 @@ parameters:
             count: 1
         -
             identifier: argument.type
+            path: tests/Unit/Partner/OrderLinkDataTest.php
+            count: 1
+        -
+            identifier: argument.type
             path: tests/Unit/Partner/PartnersTest.php
             count: 3
         -
