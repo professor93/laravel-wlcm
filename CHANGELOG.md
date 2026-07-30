@@ -2,7 +2,7 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-30
 
 ### Added
 - `orders()->create()` registers an order before a payment provider is chosen, and records it to `wlcm_transactions` with no provider, no integer state and no payment id
@@ -10,8 +10,8 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 
 ### Changed
 - BREAKING: `TransactionStore` gains `recordOrder(string $connection, array $requestPayload, Order $order)` and `recordOrderLink(string $connection, string $provider, OrderLink $link)`. `TransactionStore` is a documented rebinding point, so an implementation written against the previous interface will fatal on upgrade
-
 - `Wlcm::fake()` stubs both order endpoints by default and gains `assertOrderCreated()` and `assertLinkGenerated()`. All three checkout-family assertions now match the request path's suffix rather than a substring, so a read of `/orders/{id}/status` no longer satisfies an assertion about `/integrations/orders`
+- The reference documentation moved out of `README.md` into `ADVANCED.md`. The README is now install-and-basic-usage only; every caveat, warning and production note lives in `ADVANCED.md`, which ships in the package
 
 ### Notes
 - A provider-agnostic checkout link is not possible: `payment_provider` is mandatory on the link endpoint and WLCM hosts no provider-selection page, so a single QR code deferring the choice cannot be built against this API. Render your own chooser and call `generateLink()` with the payer's pick
