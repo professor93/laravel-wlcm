@@ -58,7 +58,25 @@ $order->statusEnum(); // OrderState::Created, or null for a value WLCM has not p
 
 `externalId` is optional and omitted from the payload when null; the server then echoes `external_id: null`. Reusing one is a 409 `ConflictException` whose `errorCode()` is `null` — the server answers with prose, not a machine code. A non-positive amount throws `InvalidAmountException` before anything is sent.
 
-**This order cannot be paid through this package.** Turning it into a checkout URL needs `POST /integrations/generate/link`, which is not implemented — and that endpoint requires a `payment_provider`, so it cannot produce a provider-agnostic link for a QR code either.
+Then attach a provider to get a payable URL:
+
+```php
+$link = Wlcm::partner()->orders()->generateLink(
+    provider: PaymentProvider::Payme,
+    returnUrl: 'https://shop.test/return',
+    orderId: $order->orderId,        // XOR: pass externalId instead if that is what you hold
+);
+
+$link->checkoutUrl; // redirect the customer here
+```
+
+Exactly one of `orderId` / `externalId` — neither or both throws `InvalidOrderReferenceException` before anything is sent. Repeatable: calling again with a different provider switches it, last call wins. `checkoutUrl` is derived from the order id, **not** the provider, so it is the same URL every time — never cache it against a provider.
+
+`provider` unknown to WLCM is a 400 `ValidationException` ("Provider is not supported"); known but switched off for your partner is also 400 ("Provider is not configured"). A missing order is 404 `NotFoundException`. None of the three carries a machine `errorCode`.
+
+`returnUrl` is passed through verbatim. The server accepts an empty string with 200, and so does this package.
+
+**Provider chooser:** since the call is repeatable and the URL constant, render your own provider buttons, call `generateLink()` with the pick, then redirect. WLCM has no provider-selection page, and `payment_provider` is mandatory, so a single QR that defers the choice is not expressible against this API.
 
 **Reconciliation trap:** `orders()->status()` on an order that was never linked to a provider already reports `state: 1` and `is_pending: true`. An order nobody has attempted to pay reads as in progress, so `isPaid` is the only safe signal — never treat pending alone as evidence a payment was started.
 
