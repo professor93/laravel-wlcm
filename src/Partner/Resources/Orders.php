@@ -65,8 +65,9 @@ final readonly class Orders
      * Attaches a provider to an existing order and returns its checkout URL.
      *
      * Repeatable: calling again with a different provider switches it, server-side last
-     * call wins, and the URL is the same either way — it is derived from the order id,
-     * not the provider.
+     * call wins. The URL depends on the provider as well as the order — click answers
+     * /pay/click/{id} where payme answers /pay/{id} — so never reuse a URL across a
+     * switch. Always redirect to the one the latest call returned.
      */
     public function generateLink(
         PaymentProvider|string $provider,

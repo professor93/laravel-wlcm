@@ -12,8 +12,8 @@ final readonly class OrderLink
     public function __construct(
         public int $orderId,
         public ?string $externalId,
-        // Deterministic /pay/{order_id} — it does NOT vary by provider, so never treat
-        // it as provider-specific or cache it against one.
+        // Varies by PROVIDER as well as order — click answers /pay/click/{id} where
+        // payme answers /pay/{id}. Never reuse one across a provider switch.
         public ?string $checkoutUrl,
     ) {}
 

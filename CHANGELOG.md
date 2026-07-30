@@ -6,7 +6,7 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 
 ### Added
 - `orders()->create()` registers an order before a payment provider is chosen, and records it to `wlcm_transactions` with no provider, no integer state and no payment id
-- `orders()->generateLink()` attaches a provider to an existing order and returns its checkout URL, addressing the order by `orderId` or `externalId`. Repeatable — a second call switches provider, last call wins — and it completes the audit row `create()` wrote rather than adding a second. `checkout_url` is derived from the order id, not the provider, so it does not change when the provider does
+- `orders()->generateLink()` attaches a provider to an existing order and returns its checkout URL, addressing the order by `orderId` or `externalId`. Repeatable — a second call switches provider, last call wins — and it completes the audit row `create()` wrote rather than adding a second. `checkout_url` varies by provider as well as by order, so always redirect to the URL the latest call returned
 
 ### Changed
 - BREAKING: `TransactionStore` gains `recordOrder(string $connection, array $requestPayload, Order $order)` and `recordOrderLink(string $connection, string $provider, OrderLink $link)`. `TransactionStore` is a documented rebinding point, so an implementation written against the previous interface will fatal on upgrade

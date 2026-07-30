@@ -64,7 +64,9 @@ $link = Wlcm::partner()->orders()->generateLink(
 $link->checkoutUrl; // redirect the customer here
 ```
 
-`generateLink()` is repeatable — call it again with a different provider to switch, last call wins. `checkoutUrl` comes from the order id, not the provider, so it never changes.
+`generateLink()` is repeatable — call it again with a different provider to switch, last call wins, any number of times and in any order.
+
+> **Always use the URL from the most recent call.** `checkoutUrl` depends on the provider as well as the order: `payme` gives `/pay/{id}` while `click` gives `/pay/click/{id}`. Caching it across a provider switch sends payers to the wrong page.
 
 Reusing an `externalId` on `create()` is a 409 `ConflictException`. Passing neither or both identifiers to `generateLink()` throws `InvalidOrderReferenceException` before anything is sent.
 
