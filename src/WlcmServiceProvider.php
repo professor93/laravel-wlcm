@@ -59,6 +59,10 @@ final class WlcmServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole()) {
+            $this->commands([Console\OnboardCommand::class]);
+        }
+
         $this->publishes([
             __DIR__.'/../config/wlcm.php' => config_path('wlcm.php'),
         ], 'wlcm-config');

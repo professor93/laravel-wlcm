@@ -152,6 +152,24 @@ Error codes here are real machine codes, unlike most of this API's prose details
 
 **The minted `api_secret` never reaches a log store.** `Masker::mask` drops `api_secret` and `api_key` before any driver writes, and there is a non-vacuous test — it asserts the response body *was* logged and that the secret is absent from it, so the assertion cannot rot into proving nothing.
 
+### `wlcm:onboard`
+
+```bash
+php artisan wlcm:onboard --token= --name= --base-url= --connection=
+```
+
+Order is deliberate: **the credentials are printed before anything that can fail.** A `.env` write, a cached config or a failed verify must never be why an operator loses a secret the server shows once. The confirm prompt sits before `complete()`, because that is the call which spends the token — declining costs nothing.
+
+**`.env` policy — append only.** A key that is missing is appended. A key that exists is *never* overwritten: the command prints the current value masked and offers a commented duplicate (`# WLCM_API_KEY=…`). No backup file is written, because a backup would leave a second copy of a live secret on disk. Afterwards it reports which keys were added live, which were commented, and which were left untouched. `EnvWriter` handles `export KEY=`, quoted values, a missing `.env`, a file with no trailing newline, and CRLF. A commented line does **not** count as present — otherwise declining a duplicate once would permanently block that key.
+
+**`--no-interaction` answers every question no.** It will not prompt for a token, will not append commented duplicates, and will not run the verify step. An unattended run cannot grow your `.env` or block on a prompt.
+
+**Under `config:cache` it writes anyway and says so.** The values are inert until `php artisan config:clear` or a rebuilt cache, because the running app keeps the baked ones. The command warns rather than refusing: the credentials are the irreplaceable part, and refusing after the token was spent would be worse than a warning.
+
+**The verify step builds its connection from the fresh values, not from config.** Under a cached config the config path still holds the old credentials, so verifying through it would test the wrong thing and report a false failure.
+
+**A non-default `--connection` prints a config block instead of writing `.env`.** Only the default connection has `WLCM_*` env mappings in the packaged config, so writing `WLCM_API_KEY` while onboarding `shop` would configure `main` and read as success. Nothing is written; the exact `config/wlcm.php` block is printed to paste.
+
 **The token never reaches an exception.** `Masker::redactQuery()` blanks the value of sensitive query parameters on both the exception message and its `requestPath`, at both sites that build one: `PartnerClient`'s transport-failure path and `ErrorMapper`, which handles every mapped status. The second is the one that matters in practice — a bogus token is an ordinary 400, whereas transport failures are rare. Ordinary query values such as `payment_id=179` are left intact, since destroying them would defeat the purpose of the exception context.
 
 ---

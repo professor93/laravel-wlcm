@@ -5,6 +5,7 @@ All notable changes documented here. Format: keep-a-changelog. Semver.
 ## [Unreleased]
 
 ### Added
+- `php artisan wlcm:onboard` — the first command in the package. Validates the token, confirms before spending it, prints the credentials once, appends them to `.env` and offers to verify. Never overwrites an existing `.env` key: it shows the current value masked and offers a commented duplicate. `--no-interaction` answers every question no, so an unattended run cannot grow your `.env`. Under `config:cache` it writes and warns that the values are inert until the cache is rebuilt, and the verify step uses the fresh values rather than config. A non-default `--connection` prints a `config/wlcm.php` block instead of writing env keys that would configure the default connection
 - Onboarding: `Wlcm::connection('x')->onboarding()->onboarding()` exposes `validateToken()` and `complete()`, bootstrapping a partner from a token before any key or secret exists. Reached through a separate `OnboardingClient` that holds no credentials and owns no signer, so it cannot emit a broken signature; `Connection::onboarding()` needs only `base_url` and `Connection::partner()` keeps its full requirement unchanged
 
 ### Fixed

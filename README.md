@@ -93,6 +93,14 @@ if ($onboarding->validateToken($token)) {
 }
 ```
 
+Or do the whole thing from the console:
+
+```bash
+php artisan wlcm:onboard --token=... --name="Acme LLC"
+```
+
+It validates the token, confirms before spending it, prints the credentials once, appends them to `.env`, and offers to verify them. It **never overwrites** an existing `.env` key — it shows you the current value and offers a commented duplicate instead.
+
 An invalid or expired token is a 400 `ValidationException` with `errorCode()` of `invalid_or_expired`; a missing one on `complete()` gives `token_required`. `validateToken()` returns `false` only when the server answers 200 without a truthy `valid` — a rejected token throws instead, because "expired" and "no" are different answers.
 
 > **`api_secret` is shown once.** It is dropped before any log store sees it, so the package keeps no copy. Capture it at the call site or it is gone.
