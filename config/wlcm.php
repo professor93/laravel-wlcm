@@ -95,5 +95,19 @@ return [
         'prune_days' => 90,
         // Reaps abandoned checkouts (no webhook ever arrived); null = keep forever.
         'stale_days' => null,
+
+        // 'file' driver only. Without these the JSONL grows until the disk does not —
+        // prune_days covers the two TABLES and nothing else.
+        'file' => [
+            // Rotate once the file reaches this. '10MB', '512K' or a byte count;
+            // null switches size rotation off.
+            'max_size' => null,
+            // One file per day, dated in the NAME (wlcm-2026-08-01.jsonl) so two
+            // processes crossing midnight cannot disagree about whose turn it is.
+            // Named in UTC, not APP_TIMEZONE.
+            'daily' => false,
+            // Rotated archives to keep, newest first. null keeps every one.
+            'max_files' => null,
+        ],
     ],
 ];

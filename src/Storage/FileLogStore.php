@@ -153,7 +153,14 @@ final class FileLogStore implements LogStore
     {
         $path = config('wlcm.storage.logs_path');
         $path = is_string($path) ? trim($path) : '';
+        $path = $path !== '' ? $path : storage_path('logs/wlcm.jsonl');
 
-        return $path !== '' ? $path : storage_path('logs/wlcm.jsonl');
+        $file = config('wlcm.storage.file');
+        /** @var array<string, mixed> $file */
+        $file = is_array($file) ? $file : [];
+
+        // Called inside append()'s try, so a rotation failure lands in the same
+        // swallow-and-report guard as a failed write and cannot break a payment call.
+        return FileRotation::resolve($path, $file);
     }
 }
