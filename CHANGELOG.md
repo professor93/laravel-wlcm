@@ -2,7 +2,7 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
-## [Unreleased]
+## [0.4.0] - 2026-08-01
 
 ### Added
 - `wlcm.webhook.domain` (env `WLCM_WEBHOOK_DOMAIN`) restricts the webhook route to one host. A whitespace-only value collapses to null rather than registering a host pattern that matches everything
