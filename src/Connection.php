@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm;
 
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
+use Uzbek\Wlcm\Partner\OnboardingClient;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Storage\LogStore;
 use Uzbek\Wlcm\Storage\TransactionStore;
@@ -12,10 +13,14 @@ use Uzbek\Wlcm\Storage\TransactionStore;
 /**
  * @phpstan-import-type PartnerClientConfigShape from PartnerClient
  * @phpstan-import-type WlcmHttpShape from PartnerClient
+ * @phpstan-import-type OnboardingClientConfigShape from OnboardingClient
+ * @phpstan-import-type OnboardingHttpShape from OnboardingClient
  */
 final class Connection
 {
     private ?PartnerClient $partner = null;
+
+    private ?OnboardingClient $onboarding = null;
 
     /** @param array<string, mixed> $config */
     public function __construct(
@@ -39,6 +44,27 @@ final class Connection
         }
 
         return $this->partner;
+    }
+
+    /**
+     * Credential-less by design: onboarding is how a partner GETS its key and secret,
+     * so requiring them here would make the endpoint unreachable. Only base_url is
+     * needed. partner() keeps its full requirement — this does not relax that.
+     */
+    public function onboarding(): OnboardingClient
+    {
+        if ($this->onboarding === null) {
+            $config = $this->section('partner');
+            $this->requireKeys('partner', $config, ['base_url']);
+            $http = $this->httpConfig();
+            /**
+             * @var OnboardingClientConfigShape $config
+             * @var OnboardingHttpShape $http
+             */
+            $this->onboarding = new OnboardingClient($this->name, $config, $http, $this->logStore);
+        }
+
+        return $this->onboarding;
     }
 
     /** @return array<string, mixed> */
