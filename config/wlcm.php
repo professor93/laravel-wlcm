@@ -63,6 +63,23 @@ return [
         // tolerance_seconds there is no null disable; null, non-numeric or non-positive
         // throws MissingConfigurationException on the first delivery.
         'lease_seconds' => 60,
+
+        // When a WLCM delivery record counts as needing attention. Shared by
+        // `wlcm:webhook:events --failed` and the scaffolded listeners, so the CLI and
+        // your code cannot disagree. Any rule set to null is switched off.
+        //
+        // These are several INDEPENDENT signals on purpose. Across 59 real sandbox
+        // deliveries every record read 'failed' — no successful one has ever been
+        // observed — so 'delivered' is a guess, and a predicate resting on it alone
+        // would pass everything the day the real vocabulary turned out to differ.
+        // has_error_message is the rule that survives that.
+        'alerts' => [
+            'status_not_in' => ['delivered'],
+            'has_error_message' => true,
+            'response_code_not_in' => [200, 201, 202, 204],
+            'attempts_gte' => 2,
+            'stale_retry' => true,
+        ],
     ],
 
     'storage' => [
