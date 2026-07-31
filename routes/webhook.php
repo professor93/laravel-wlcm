@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
+use Uzbek\Wlcm\Webhooks\AllowWebhookIps;
 use Uzbek\Wlcm\Webhooks\VerifyWebhookSignature;
 use Uzbek\Wlcm\Webhooks\WebhookController;
 use Uzbek\Wlcm\Webhooks\WebhookRoute;
@@ -14,7 +15,17 @@ use Uzbek\Wlcm\Webhooks\WebhookRoute;
 $route = Route::post(
     WebhookRoute::uri(config('wlcm.webhook.path')),
     WebhookController::class,
-)->middleware(VerifyWebhookSignature::class)->name(WebhookRoute::NAME);
+    // Allowlist BEFORE signature: an address we do not serve should never reach the
+    // constant-time secret work, and the cheaper check belongs first.
+)->middleware([AllowWebhookIps::class, VerifyWebhookSignature::class])->name(WebhookRoute::NAME);
+
+// Same trim-and-fallback rule as the path: a whitespace-only domain is not a domain, and
+// registering one as a host constraint would match nothing and take the endpoint offline.
+$domain = WebhookRoute::domain(config('wlcm.webhook.domain'));
+
+if ($domain !== null) {
+    $route->domain($domain);
+}
 
 $connections = array_keys((array) config('wlcm.connections', []));
 

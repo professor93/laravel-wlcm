@@ -55,6 +55,23 @@ final class WebhookRoute
     }
 
     /**
+     * The host constraint, or null for none.
+     *
+     * Null rather than `''` is load-bearing. `Route::domain('')` carries a domain that
+     * matches every host, and `addToCollections()` files by TRUTHINESS — so an empty
+     * string would leave the route in the domainless table while still going through
+     * host matching, which is neither of the two behaviours anyone wants. A
+     * whitespace-only value is treated the same way, for the reason `path()` collapses
+     * one: an interior-blank config value out of a CRLF `.env` is a typo, not a host.
+     */
+    public static function domain(mixed $configured): ?string
+    {
+        $domain = is_string($configured) ? trim($configured) : '';
+
+        return $domain !== '' ? $domain : null;
+    }
+
+    /**
      * A route that would serve a POST to our endpoint WITHOUT carrying signature
      * verification — i.e. one that has silently taken the endpoint and will hand merchant
      * code an unverified body.

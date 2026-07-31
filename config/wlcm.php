@@ -40,6 +40,18 @@ return [
     'webhook' => [
         'enabled' => true,
         'path' => 'wlcm/webhook',
+        // Host constraint for the webhook route. null serves it on every host.
+        'domain' => env('WLCM_WEBHOOK_DOMAIN'),
+        // Refuse deliveries from outside this list, BEFORE signature verification.
+        // null or empty is off. CSV because an env value is always a string; a config
+        // file may use an array instead. Entries may be an exact address, a CIDR block
+        // or an inclusive start-end range, v4 or v6. A malformed entry throws rather
+        // than silently never matching.
+        //
+        // PROXY TRAP: matching uses $request->ip(), which is your load balancer unless
+        // the app configures TrustProxies. Behind a proxy without it, nothing WLCM sends
+        // can ever match. See ADVANCED.md.
+        'allowed_ips' => env('WLCM_WEBHOOK_ALLOWED_IPS'),
         'handler' => null,
         'subscription_handler' => null,
         // Reject signed deliveries whose timestamp is further than this from now.
