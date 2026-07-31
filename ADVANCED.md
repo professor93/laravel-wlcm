@@ -113,6 +113,69 @@ php artisan wlcm:webhook:delete   {id?} --force --connection=
 
 **`--active-only` on `list` filters out only a definite `false`.** A null means WLCM did not report the field, and hiding an endpoint that cannot be classified would misrepresent the list.
 
+## Return URL resolution
+
+Order: the explicit `returnUrl:` argument, then `connections.{name}.checkout.return_url`, then `wlcm.checkout.return_url`, then nothing.
+
+**Nothing means the key is omitted from the payload entirely**, so WLCM applies its own default. That is not the same as sending an empty string — the server accepts `return_url: ""` with a 200, and it means the payer never comes back. `generateLink()` is the exception: the server requires the field there, so an unresolved value falls back to whatever the caller passed.
+
+The per-connection lookup goes through `ConnectionConfig::block()`, reading the connection name as an array key rather than a config path. A dotted name like `shop.uz` interpolated into a path reads as `connections[shop][uz]` and silently finds nothing — the bug class fix `7e49c91` addressed.
+
+A value with no scheme that names a registered route is resolved through `route()`. The check is deliberately narrow: anything containing `://` or starting with `/` is treated as a url and passed through untouched, so a real url can never be mistaken for a route name whatever your routes happen to be called. An unregistered name is returned verbatim rather than throwing — a merchant whose route is only defined in another context should not have their checkout die over it.
+
+## Webhook delivery history
+
+`wlcm:webhook:events` reads WLCM's own delivery log. That answers a different question from `wlcm_logs`: the local trail records deliveries that ARRIVED, while this records what WLCM tried to send — including everything that never reached you, which is exactly the case you cannot diagnose locally.
+
+The record shape, confirmed live:
+
+```
+{id, webhook_id, event_type, payload, status, attempts,
+ response_code, response_body, error_message, next_retry_at, created_at}
+```
+
+`response_code` is null when no HTTP exchange happened at all (a malformed url, a DNS failure) and an integer when there was one. The table shows `—` rather than a blank for that, because the two failures are different. Across 59 real sandbox deliveries `attempts` was always `1` and `next_retry_at` always null — the at-most-once claim, confirmed.
+
+`--limit` defaults to 20 and **says so when it truncates**. A partial view that looks complete is how an operator concludes a delivery never happened.
+
+### DeliveryHealth
+
+`wlcm.webhook.alerts` defines when a delivery needs attention. One predicate, `DeliveryHealth::problematic()`, is shared by `--failed` and by the scaffolded listeners, so the CLI and your code cannot disagree.
+
+| Rule | Default |
+| --- | --- |
+| `status_not_in` | `['delivered']` |
+| `has_error_message` | `true` |
+| `response_code_not_in` | `[200, 201, 202, 204]` |
+| `attempts_gte` | `2` |
+| `stale_retry` | `true` |
+
+Any rule set to null is off.
+
+**These are several independent signals on purpose.** Across every delivery ever observed on this API, the status read `failed` — no successful delivery has been seen, so `'delivered'` is a **guess**. A predicate resting on it alone would silently pass everything the day the real vocabulary turned out to be `success` or `ok`. `has_error_message` is the rule that survives that: a delivery carrying an error text has failed whatever its status is called.
+
+An empty or unrecognisable record is treated as unhealthy. Reporting it as fine is the failure this predicate exists to prevent.
+
+## Listener scaffolding
+
+`wlcm:webhook:listeners` writes into `app/Listeners/Wlcm`. Laravel 11+ discovers listeners by their `handle()` type-hint, so nothing needs registering — the class works the moment it exists.
+
+Idempotent by default: an existing file is skipped, never silently replaced, and `--force` overwrites. Naming an unknown event is a usage error that writes nothing, because generating nothing in silence is how someone waits for a listener that will never fire.
+
+Every stub carries the at-least-once caveat and the reminder that `amount` and `external_id` are unsigned. The generated files are checked with `php -l` in the package's own tests — a scaffolder that emits plausible-looking invalid PHP is a real failure mode.
+
+## Storage: file driver rotation
+
+`wlcm.storage.file` — `max_size`, `daily`, `max_files`. All off by default, and without them the JSONL grows until the disk does not: `prune_days` covers the two *tables* and nothing else.
+
+Rotation is **rename-based**, which is compatible with the write path because each write reopens the file by name. A writer holding the old inode finishes its line into the rotated file rather than losing it, and the next write lands in a fresh one. Truncating in place could cut a line in half. There is a test that writes 20 entries across a rotation and counts the live file plus every archive, expecting exactly 20.
+
+Archives take a `.1`, `.2` suffix and **never overwrite an existing one**. `max_files` keeps the newest N by mtime.
+
+`daily` puts the date in the *filename* (`wlcm-2026-08-01.jsonl`) rather than checking whether the date changed since the last write, so two processes crossing midnight cannot disagree about whose turn it is to rotate. The name uses **UTC**, not `APP_TIMEZONE` — a filename is a filing decision, and a host that moves timezone must not start writing yesterday's file again.
+
+An unreadable `max_size` switches size rotation off rather than guessing a limit. Everything here runs inside `FileLogStore`'s existing swallow-and-report guard, so a rotation failure can never break a payment call — the cost being a file that keeps growing while `report()` explains why, which is the right way round.
+
 ## Webhooks: host route conflicts
 
 **A host route at the same method and URI silently replaces ours**, taking `VerifyWebhookSignature` out of the chain entirely — so merchant code runs on an unverified body, and `route:list` is the only symptom. The package watches for this once the route table is final and `report()`s a `WebhookRouteConflictException` naming the URI and the three ways out. It reports rather than throws on purpose: a boot-time throw would take down `route:list`, the one tool that shows you what happened.

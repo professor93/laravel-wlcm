@@ -48,6 +48,8 @@ $r->checkoutUrl; // redirect the customer here
 
 Card checkout: `provider: 'card'` + `cardNumber` + `expireDate`, then `payments()->confirmOtp($transactionId, $cid, $otp)`.
 
+`returnUrl` can be omitted and taken from config instead — `WLCM_RETURN_URL`, or `wlcm.connections.{name}.checkout.return_url` for a per-connection value. A setting with no scheme that names a registered route is resolved through `route()`.
+
 ## Orders
 
 Register an order first, choose the provider later:
@@ -176,7 +178,11 @@ php artisan wlcm:webhook:create          # derives the url, generates a secret, 
 php artisan wlcm:webhook:list            # --json, --active-only
 php artisan wlcm:webhook:update {id?}    # --url, --events, --active/--inactive
 php artisan wlcm:webhook:delete {id?}    # --force
+php artisan wlcm:webhook:events {id?}    # --failed, --since=2h, --event=, --limit=
+php artisan wlcm:webhook:listeners       # scaffold listeners into app/Listeners/Wlcm
 ```
+
+`events` reads **WLCM's** delivery log, which answers a different question from `wlcm_logs`: it shows what WLCM *tried* to send, including everything that never reached you.
 
 Omit the id on `update`/`delete` and you get a picker over the live list. `delete` refuses this application's own endpoint unless you pass `--force`.
 
@@ -205,6 +211,11 @@ php artisan migrate
     'logs' => 'database',   // 'database' | 'file' | 'log' | false
     'transactions' => true, // needed for webhook dedupe
     'prune_days' => 90,
+    'file' => [             // 'file' driver only — it grows forever without these
+        'max_size' => '10MB',
+        'daily' => false,
+        'max_files' => 7,
+    ],
 ],
 ```
 

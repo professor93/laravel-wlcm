@@ -2,6 +2,15 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.5.0] - 2026-08-01
+
+### Added
+- `wlcm:webhook:events` reads WLCM's own delivery log — what it *tried* to send, including everything that never reached you, which `wlcm_logs` cannot show. Filters on status, event type and `--since=2h`, plus `--failed`. Never truncates silently
+- `DeliveryHealth` and the `wlcm.webhook.alerts` config block define when a delivery needs attention, shared by `--failed` and the scaffolded listeners so the CLI and your code cannot disagree. Several independent signals rather than a status comparison: no successful delivery has ever been observed on this API, so `'delivered'` is a guess, and `has_error_message` is the rule that survives it being wrong
+- `wlcm:webhook:listeners` scaffolds listener classes into `app/Listeners/Wlcm`. Idempotent, `--force` to overwrite, and every stub carries the at-least-once caveat. The generated files are syntax-checked in the package's own tests
+- `wlcm.storage.file` — `max_size`, `daily` and `max_files` for the JSONL driver, which otherwise grows forever: `prune_days` covers the two tables and nothing else. Rename-based rotation, so no line is lost; archives are never overwritten; `daily` names files in UTC
+- `wlcm.checkout.return_url` with a per-connection override at `connections.{name}.checkout.return_url`, read through `ConnectionConfig::block()` so a dotted connection name resolves. A value with no scheme naming a registered route is resolved through `route()`. Unset omits the key entirely, letting WLCM apply its own default — which is not the same as sending an empty string
+
 ## [0.4.0] - 2026-08-01
 
 ### Added
