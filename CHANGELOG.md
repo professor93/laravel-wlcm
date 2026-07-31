@@ -2,6 +2,14 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.5.1] - 2026-08-01
+
+### Fixed
+- A successful `wlcm:webhook:delete` reported failure. WLCM acks a DELETE with `204 No Content`, and the client treated any non-JSON success body as garbage — so a deletion that had actually happened exited 1 with "WLCM returned HTTP 204 with a non-JSON body", and a script would retry something already done. A 204 is defined as bodyless and now returns an empty result; every other 2xx keeps the original strictness, so a bodyless 200 is still an error
+- `wlcm:webhook:delete --no-interaction` deleted without any confirmation. There is no prompt to answer in that mode, so without `--force` nothing confirmed the deletion at all. It now exits 2 and refuses
+
+Both found by running the commands against the live sandbox; neither was reachable from the test suite as written.
+
 ## [0.5.0] - 2026-08-01
 
 ### Added
