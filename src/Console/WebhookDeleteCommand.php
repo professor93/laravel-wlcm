@@ -65,11 +65,21 @@ final class WebhookDeleteCommand extends Command
             return self::USAGE;
         }
 
-        if (! $this->option('force') && ! $this->option('no-interaction')
-            && ! $this->confirm("Delete webhook #{$id} ({$target->url})?", false)) {
-            $this->components->info('Nothing deleted.');
+        if (! $this->option('force')) {
+            // Non-interactive means there is no prompt to answer, so without --force
+            // nothing would confirm the deletion at all — an unattended run would delete
+            // on nothing but an id.
+            if ($this->option('no-interaction')) {
+                $this->components->error('Refusing to delete without confirmation. Pass --force in non-interactive mode.');
 
-            return self::SUCCESS;
+                return self::USAGE;
+            }
+
+            if (! $this->confirm("Delete webhook #{$id} ({$target->url})?", false)) {
+                $this->components->info('Nothing deleted.');
+
+                return self::SUCCESS;
+            }
         }
 
         try {

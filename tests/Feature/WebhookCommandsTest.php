@@ -147,6 +147,44 @@ final class WebhookCommandsTest extends TestCase
         Http::assertNotSent(fn (Request $r): bool => $r->method() === 'DELETE');
     }
 
+    public function test_a_204_delete_is_a_success_not_an_error(): void
+    {
+        // Live behaviour: DELETE acks with 204 No Content. Treating a bodyless 204 as a
+        // garbage response reported failure for a delete that had actually happened —
+        // so an operator or a script would retry something already done.
+        config()->set('app.url', 'https://shop.test');
+        Http::fake([
+            'api.wlcm.test/*/webhooks/1' => Http::response('', 204),
+            'api.wlcm.test/*' => Http::response([$this->webhook(1, 'https://elsewhere.test/hook')], 200),
+        ]);
+
+        $this->artisan('wlcm:webhook:delete', ['id' => 1, '--force' => true])
+            ->expectsOutputToContain('Deleted webhook #1')
+            ->assertExitCode(0);
+    }
+
+    public function test_a_bodyless_200_is_still_an_error(): void
+    {
+        // The 204 allowance must not weaken the guard it sits next to: a garbage 200
+        // (proxy page, truncated JSON) must never read as a successful call.
+        Http::fake(['api.wlcm.test/*' => Http::response('<html>proxy error</html>', 200)]);
+
+        $this->artisan('wlcm:webhook:list')->assertExitCode(1);
+    }
+
+    public function test_delete_refuses_non_interactive_without_force(): void
+    {
+        // Without a prompt and without --force there is no confirmation at all, so an
+        // unattended run would delete on nothing but an id.
+        config()->set('app.url', 'https://shop.test');
+        $this->fakeList($this->webhook(1, 'https://elsewhere.test/hook'));
+
+        $this->artisan('wlcm:webhook:delete', ['id' => 1, '--no-interaction' => true])
+            ->assertExitCode(2);
+
+        Http::assertNotSent(fn (Request $r): bool => $r->method() === 'DELETE');
+    }
+
     public function test_a_missing_id_in_non_interactive_mode_is_a_usage_error(): void
     {
         Http::fake();

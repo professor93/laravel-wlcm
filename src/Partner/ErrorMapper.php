@@ -30,6 +30,15 @@ final class ErrorMapper
         $url = Masker::redactQuery(Masker::scrubPans($url));
 
         if ($response->successful()) {
+            // 204 is DEFINED as bodyless, so an absent body is the correct answer rather
+            // than a broken one. DELETE acks this way, and treating it as garbage
+            // reported failure for a deletion that had already happened — an operator or
+            // a script would then retry something already done. The check below stays
+            // exactly as strict for every other 2xx.
+            if ($response->status() === 204) {
+                return [];
+            }
+
             $json = $response->json();
 
             if (! is_array($json)) {
