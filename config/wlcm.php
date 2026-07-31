@@ -37,6 +37,17 @@ return [
     // storage.transactions is on — with no row to lose there is nothing to guard.
     'allow_caller_transaction' => false,
 
+    'checkout' => [
+        // Where the payer returns after paying, when no returnUrl argument is given.
+        // A per-connection override lives at connections.{name}.checkout.return_url and
+        // wins over this. A value with no scheme that names a registered route is
+        // resolved through route(); anything containing :// is passed through untouched.
+        // Null omits the key entirely so WLCM applies its own default — which is NOT the
+        // same as sending an empty string, a value the server accepts and which means
+        // the payer never comes back.
+        'return_url' => env('WLCM_RETURN_URL'),
+    ],
+
     'webhook' => [
         'enabled' => true,
         'path' => 'wlcm/webhook',

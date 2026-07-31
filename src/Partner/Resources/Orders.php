@@ -14,6 +14,7 @@ use Uzbek\Wlcm\Partner\Data\OrderLink;
 use Uzbek\Wlcm\Partner\Data\OrderStatus;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\CallerTransaction;
+use Uzbek\Wlcm\Support\ReturnUrl;
 
 /**
  * @phpstan-import-type OrderStatusShape from OrderStatus
@@ -83,13 +84,15 @@ final readonly class Orders
 
         $providerName = $provider instanceof PaymentProvider ? $provider->value : $provider;
 
+        // The server REQUIRES return_url here, unlike checkout, so an unresolved value
+        // falls back to the empty string the server accepts rather than being omitted.
+        $resolved = ReturnUrl::resolve(app(Repository::class), $this->client->connectionName, $returnUrl);
+
         $payload = array_filter([
             'order_id' => $orderId,
             'external_id' => $externalId,
             'payment_provider' => $providerName,
-            // Passed through verbatim. The server accepts an empty string with 200 and
-            // the package does not refuse what the platform allows.
-            'return_url' => $returnUrl,
+            'return_url' => $resolved ?? $returnUrl,
         ], fn (mixed $v): bool => $v !== null);
 
         ksort($payload);

@@ -11,6 +11,7 @@ use Uzbek\Wlcm\Exceptions\InvalidAmountException;
 use Uzbek\Wlcm\Partner\Data\CheckoutResponse;
 use Uzbek\Wlcm\Partner\PartnerClient;
 use Uzbek\Wlcm\Support\CallerTransaction;
+use Uzbek\Wlcm\Support\ReturnUrl;
 
 /**
  * @phpstan-import-type CheckoutResponseShape from CheckoutResponse
@@ -37,7 +38,10 @@ final readonly class Checkout
             'payment_provider' => $provider instanceof PaymentProvider ? $provider->value : $provider,
             'card_number' => $cardNumber,
             'expire_date' => $expireDate,
-            'return_url' => $returnUrl,
+            // Null stays null so array_filter drops the key: omitting it lets WLCM apply
+            // its own default, whereas an empty string is accepted and means the payer
+            // never comes back.
+            'return_url' => ReturnUrl::resolve(app(Repository::class), $this->client->connectionName, $returnUrl),
         ], fn (mixed $v): bool => $v !== null);
 
         ksort($payload);
