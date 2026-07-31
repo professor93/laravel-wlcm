@@ -128,6 +128,34 @@ Subscription webhooks: same route, detected by `event` field. Their signature ba
 
 ---
 
+## Onboarding
+
+Token auth, no HMAC. Reached through a separate `OnboardingClient` that holds no key and no secret and owns no signer, so it cannot emit a broken signature for a partner that does not exist yet. `Connection::onboarding()` requires only `base_url`; `Connection::partner()` still requires the full credential set, and that was not relaxed.
+
+**The trailing slash is mandatory.** `/partners/onboarding/` is the onboarding route. Drop the slash and the request resolves to a *different, signed* route which answers `401 {"detail":"Missing or invalid Authorization header"}` — not a 404, so it reads like a credentials problem rather than a path problem. Measured live 2026-07-31. There is a test pinning it.
+
+**The token goes in the query, never the body.** A token in the body answers `400 {"detail":"token_required"}`.
+
+**HMAC headers are ignored, not rejected**, if you send them anyway.
+
+Error codes here are real machine codes, unlike most of this API's prose details, so `errorCode()` and `errorCodeEnum()` both resolve:
+
+| Call | Result |
+| --- | --- |
+| bogus / expired / empty token on GET | 400 `invalid_or_expired` → `ValidationException` |
+| bogus token on POST | 400 `invalid_or_expired` → `ValidationException` |
+| token absent on POST | 400 `token_required` → `ValidationException` |
+| token absent on GET | 422 with the FastAPI field map → `ValidationException` |
+| ip not allowed / partner inactive | 403 → `AuthorizationException` *(from the recovered contract, unverified)* |
+
+**PROVENANCE — read before trusting the success shapes.** Every error path above was probed live on 2026-07-31 with a deliberately invalid token. The two *success* shapes — `validateToken` seeing `{"valid": true}`, and `complete()` returning `{id, name, api_key, api_secret, warning}` — were **not** probed, because no spare onboarding token existed and a successful POST consumes one and mints a real partner. They come from the contract recovered at commit `25a3e47` plus one recorded live sample. Parsing is defensive throughout, so a drifted shape degrades to nulls rather than throwing on a call a merchant cannot repeat. **Whoever first runs this against a real token should confirm the response shape rather than assume it.**
+
+**The minted `api_secret` never reaches a log store.** `Masker::mask` drops `api_secret` and `api_key` before any driver writes, and there is a non-vacuous test — it asserts the response body *was* logged and that the secret is absent from it, so the assertion cannot rot into proving nothing.
+
+**The token never reaches an exception.** `Masker::redactQuery()` blanks the value of sensitive query parameters on both the exception message and its `requestPath`, at both sites that build one: `PartnerClient`'s transport-failure path and `ErrorMapper`, which handles every mapped status. The second is the one that matters in practice — a bogus token is an ordinary 400, whereas transport failures are rare. Ordinary query values such as `payment_id=179` are left intact, since destroying them would defeat the purpose of the exception context.
+
+---
+
 ## Storage: what gets scrubbed
 
 PAN, OTP, passwords, secrets always masked or dropped before the write, whichever driver is in use. Luhn-coincident numeric values (e.g. some ms timestamps) over-mask in log body copies.

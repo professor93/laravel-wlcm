@@ -41,6 +41,11 @@ final readonly class OnboardingClient
         private LogStore $logStore,
     ) {}
 
+    public function onboarding(): Resources\Onboarding
+    {
+        return new Resources\Onboarding($this);
+    }
+
     /**
      * @param  array<string, int|string>  $query
      * @return array<string, mixed>

@@ -2,6 +2,17 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [Unreleased]
+
+### Added
+- Onboarding: `Wlcm::connection('x')->onboarding()->onboarding()` exposes `validateToken()` and `complete()`, bootstrapping a partner from a token before any key or secret exists. Reached through a separate `OnboardingClient` that holds no credentials and owns no signer, so it cannot emit a broken signature; `Connection::onboarding()` needs only `base_url` and `Connection::partner()` keeps its full requirement unchanged
+
+### Fixed
+- SECURITY: an onboarding token could reach an exception. The token authenticates a one-shot partner creation and rides `?token=`, and exception context is what a host's default handler ships to its error tracker. `Masker::redactQuery()` now blanks sensitive query values on both the message and `requestPath`, at both sites that build one — `PartnerClient`'s transport-failure path and `ErrorMapper`, which handles every mapped status. Log stores were already safe, keeping only `parse_url(PHP_URL_PATH)`
+
+### Notes
+- The onboarding *error* paths are live-verified; the two *success* shapes are not, because a successful call consumes a token and mints a real partner. They follow the contract recovered at commit `25a3e47`. Parsing is defensive, so a drift degrades to nulls rather than throwing — but confirm the shape on first real use
+
 ## [0.2.1] - 2026-07-30
 
 ### Fixed

@@ -77,6 +77,26 @@ $status->isPaid;
 
 > An order that was never linked already reports `is_pending: true`. Settle on `isPaid`, never on pending.
 
+## Onboarding
+
+Bootstraps a partner from an onboarding token, before any key or secret exists. Needs only `base_url` in config:
+
+```php
+$onboarding = Wlcm::connection('main')->onboarding()->onboarding();
+
+if ($onboarding->validateToken($token)) {
+    $c = $onboarding->complete($token, 'Acme LLC');
+
+    $c->apiKey;     // put in WLCM_API_KEY
+    $c->apiSecret;  // put in WLCM_API_SECRET — shown ONCE, never again
+    $c->warning;    // the server's own wording, show it to the operator
+}
+```
+
+An invalid or expired token is a 400 `ValidationException` with `errorCode()` of `invalid_or_expired`; a missing one on `complete()` gives `token_required`. `validateToken()` returns `false` only when the server answers 200 without a truthy `valid` — a rejected token throws instead, because "expired" and "no" are different answers.
+
+> **`api_secret` is shown once.** It is dropped before any log store sees it, so the package keeps no copy. Capture it at the call site or it is gone.
+
 ## Subscriptions
 
 ```php
