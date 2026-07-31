@@ -79,6 +79,14 @@ $status->isPaid;
 
 > An order that was never linked already reports `is_pending: true`. Settle on `isPaid`, never on pending.
 
+## Health check
+
+```bash
+php artisan wlcm:doctor           # --skip-api, --json, --connection=
+```
+
+Checks the things that fail *silently*: credentials, unreadable toggles, a cached config that ignores a rotated secret, a storage toggle switched on without its migration, a host route shadowing the webhook endpoint, and webhooks registered at urls WLCM cannot reach. Exits 1 on any failure, so it works as a deploy gate. Warnings never fail it.
+
 ## Onboarding
 
 Bootstraps a partner from an onboarding token, before any key or secret exists. Needs only `base_url` in config:

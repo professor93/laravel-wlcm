@@ -2,6 +2,11 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.6.0] - 2026-08-01
+
+### Added
+- `php artisan wlcm:doctor` checks an installation for the failures that stay silent: credentials, unreadable toggles, a cached config that ignores a rotated secret, a storage toggle enabled without its migration, a host route shadowing the webhook endpoint, and webhooks registered at urls WLCM cannot reach. Exits 1 on failure so it gates a deploy; warnings never fail it. `--skip-api` makes no outbound call, `--json` for machines. Secrets report only their length — this output is what gets pasted into support tickets
+
 ## [0.5.1] - 2026-08-01
 
 ### Fixed

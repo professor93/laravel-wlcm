@@ -61,6 +61,7 @@ final class WlcmServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([
+                Console\DoctorCommand::class,
                 Console\OnboardCommand::class,
                 Console\WebhookCreateCommand::class,
                 Console\WebhookListCommand::class,

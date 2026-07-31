@@ -88,6 +88,27 @@ Matching uses `$request->ip()`, which is your **load balancer** unless the host 
 
 It fails closed, which is the right direction — but the symptom is a bare 403 with no reason. So when a refused request carries an `X-Forwarded-For` header **and** the app trusts no proxies, the package `report()`s a `WebhookProxyMisconfiguredException` naming the address it actually matched against. Reported, never thrown: the delivery is already refused by then, and this exists so the refusal has an explanation in your error tracker.
 
+## `wlcm:doctor`
+
+Every check exists because the failure it looks for is **silent** — none of them announce themselves, and all present the same way: payments that quietly never reconcile.
+
+| Group | Checks |
+| --- | --- |
+| config | connection resolves; `base_url`, `api_key`, `api_secret` present; `webhook_secret` present; `webhook.enabled` and `storage.transactions` readable; `tolerance_seconds` and `lease_seconds` valid; `allowed_ips` parses |
+| caches | `config:cache` and `route:cache` active |
+| storage | log driver readable; a table that an enabled toggle needs actually exists |
+| route | webhook uri, and whether another route shadows it without signature verification |
+| api | `/partners/me` authenticates |
+| webhooks | scheme present, host reachable, path matches what this app serves, recent deliveries healthy |
+
+**Exit 1 on any failure, 0 otherwise**, so it gates a deploy. A **warning never fails it** — a doctor that fails on "config is cached" is a doctor nobody runs.
+
+`--skip-api` makes no outbound call, for a CI box with no credentials. `--json` for machines.
+
+**Secrets are never previewed.** `api_secret` and `webhook_secret` report only their length, because this output is exactly what gets pasted into a support ticket. `api_key` keeps an 8-character prefix — it is an identifier rather than a credential, and support needs it to find the partner.
+
+The storage check guards its own toggle read. An unreadable toggle throws, and a doctor that crashes on the fault it exists to diagnose is worse than no doctor.
+
 ## Webhook console commands
 
 ```bash
