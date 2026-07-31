@@ -2,6 +2,13 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [Unreleased]
+
+### Added
+- `wlcm.webhook.domain` (env `WLCM_WEBHOOK_DOMAIN`) restricts the webhook route to one host. A whitespace-only value collapses to null rather than registering a host pattern that matches everything
+- `wlcm.webhook.allowed_ips` (env `WLCM_WEBHOOK_ALLOWED_IPS`) refuses deliveries from outside an allowlist, **before** signature verification. Exact addresses, CIDR blocks and inclusive `start-end` ranges, v4 and v6, as CSV or a config array. A malformed entry throws rather than silently never matching, and every entry is validated before any matching happens. A rejection writes one audit line carrying the address and nothing else. When a refused request carries `X-Forwarded-For` while the app trusts no proxies, the package reports a `WebhookProxyMisconfiguredException` — the allowlist is matching your load balancer, and it can never succeed
+- `wlcm:webhook:create`, `wlcm:webhook:list`, `wlcm:webhook:update`, `wlcm:webhook:delete`. `create` derives the delivery url from the configured domain or `APP_URL` plus the webhook path, generates a 32-byte secret, warns about hosts WLCM cannot reach, and stores the secret the server reports rather than the one sent. `update` and `delete` prompt from the live list when the id is omitted. `delete` refuses this application's own endpoint without `--force`. Exit codes distinguish an API failure (1) from a usage error (2)
+
 ## [0.3.0] - 2026-08-01
 
 ### Added

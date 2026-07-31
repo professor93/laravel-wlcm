@@ -60,6 +60,59 @@ Missing, empty or non-scalar *required* field = 422 — payments need `order_id`
 
 > **`amount` and `external_id` are in neither base.** They arrive unauthenticated — a valid signature says nothing about them. Never fulfill on the webhook's amount; call `Wlcm::partner()->orders()->status($orderId)` and settle from that.
 
+## Webhooks: host constraint
+
+`wlcm.webhook.domain` (env `WLCM_WEBHOOK_DOMAIN`) restricts the route to one host. Null serves it everywhere, which is the default.
+
+The value is trimmed, and a whitespace-only one collapses to null rather than being registered. That is not tidiness: `Route::domain('')` carries a host pattern matching every host while `RouteCollection::addToCollections()` files the route in the *domainless* table by truthiness — neither of the two behaviours anyone wants, and it is exactly what `domain(config(...))` produces from an unset key.
+
+Setting a domain changes which half of the conflict watch sees your route. A domained route lives in a different table, so a host route capturing the same path without a domain is checked first on every host.
+
+## Webhooks: IP allowlist
+
+`wlcm.webhook.allowed_ips` (env `WLCM_WEBHOOK_ALLOWED_IPS`) refuses deliveries from outside the list. Absent, empty or whitespace means off.
+
+Entries may be an exact address, a CIDR block, or an inclusive `start-end` range, in v4 or v6. An env value is always a string so CSV is the way to express a list there; a config file may use an array instead. Exact and CIDR matching goes through Symfony's `IpUtils`; only the dash range is ours, and it compares `inet_pton` packed bytes rather than per-octet arithmetic, which is what makes `1.2.3.250-1.2.5.5` work and what gets IPv6 for free.
+
+**A malformed entry throws `MissingConfigurationException`, and every entry is validated before any matching happens.** Validating lazily would short-circuit on the first match, leaving a typo further down the list invisible until the day an address that should have matched it is refused — silently. The quiet failure is the dangerous one here: an operator who cannot see why an address is rejected tends to widen the list until something works.
+
+**It runs before signature verification.** An address the endpoint does not serve should never reach the constant-time secret work, and the cheaper check belongs first. There is a test proving a disallowed address is refused even with a garbage signature.
+
+The 403 carries no body detail. Telling an unknown caller which addresses are allowed — or that an allowlist exists at all — is free reconnaissance.
+
+**A rejection writes one audit line** with `result = 'rejected'`, carrying the address and nothing else from the request. That path is by definition untrusted and its body has been verified against no signature, so the address is all that is kept. Signature rejections remain silent; this layer is the one where an operator can lock themselves out, so it is the one that explains itself.
+
+### The proxy trap
+
+Matching uses `$request->ip()`, which is your **load balancer** unless the host app configures TrustProxies. Behind a proxy without it, nothing WLCM sends can ever match, and every delivery is refused.
+
+It fails closed, which is the right direction — but the symptom is a bare 403 with no reason. So when a refused request carries an `X-Forwarded-For` header **and** the app trusts no proxies, the package `report()`s a `WebhookProxyMisconfiguredException` naming the address it actually matched against. Reported, never thrown: the delivery is already refused by then, and this exists so the refusal has an explanation in your error tracker.
+
+## Webhook console commands
+
+```bash
+php artisan wlcm:webhook:create   --url= --host= --secret= --connection= --json
+php artisan wlcm:webhook:list     --connection= --active-only --json
+php artisan wlcm:webhook:update   {id?} --url= --events= --active --inactive --connection= --json
+php artisan wlcm:webhook:delete   {id?} --force --connection=
+```
+
+**Exit codes are distinguishable on purpose:** `0` success, `1` the server said no, `2` the operator did. A script that retries on API failure must not retry a contradictory flag combination.
+
+**`create` derives the url rather than asking cold.** Host comes from `--host`, else `wlcm.webhook.domain`, else `APP_URL`; path from `wlcm.webhook.path`; and a non-default connection gets its segment appended. An operator typing the url from memory is how a webhook ends up one segment away from the route that would have verified it. `--url` skips derivation entirely.
+
+**The secret is generated, not prompted** — 32 random bytes hex-encoded — because a human-chosen webhook secret is the weakest link in the signature scheme. `--secret` overrides. **What gets stored is the secret the server reports back**, not the one sent: WLCM may keep its own, and deliveries are signed with whatever it kept.
+
+**`create` warns about a host WLCM cannot reach** (`localhost`, `127.0.0.1`, `::1`, `.test`, `.local`, `.localhost`). Such an endpoint registers perfectly and then never receives anything.
+
+**`.env` writing follows the same append-only policy as `wlcm:onboard`** and never overwrites an existing `WLCM_WEBHOOK_SECRET` — that value may be signing live deliveries for an endpoint still registered. A non-default connection prints a config block instead, since only the default reads `WLCM_WEBHOOK_SECRET`.
+
+**`delete` refuses this application's own endpoint without `--force`.** Deleting it stops every delivery and the symptom is silence: no error, just payments that never reconcile. Ownership is decided on host plus path, ignoring scheme and trailing slash, so a cosmetic difference cannot bypass the guard.
+
+**`update` refuses an empty patch** with exit 2 rather than sending a no-op PATCH that would report success while changing nothing. `--active` and `--inactive` together are also a usage error.
+
+**`--active-only` on `list` filters out only a definite `false`.** A null means WLCM did not report the field, and hiding an endpoint that cannot be classified would misrepresent the list.
+
 ## Webhooks: host route conflicts
 
 **A host route at the same method and URI silently replaces ours**, taking `VerifyWebhookSignature` out of the chain entirely — so merchant code runs on an unverified body, and `route:list` is the only symptom. The package watches for this once the route table is final and `report()`s a `WebhookRouteConflictException` naming the URI and the three ways out. It reports rather than throws on purpose: a boot-time throw would take down `route:list`, the one tool that shows you what happened.

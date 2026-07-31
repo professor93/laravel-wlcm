@@ -169,6 +169,28 @@ Events: `PaymentSucceeded`, `PaymentCancelled`, `WebhookReceived`, plus `Subscri
 
 > **Handlers must be idempotent**, and deliveries are effectively at-most-once, so poll for anything still pending. Dedupe needs `wlcm.storage.transactions` on.
 
+Register and manage the endpoint from the console:
+
+```bash
+php artisan wlcm:webhook:create          # derives the url, generates a secret, writes .env
+php artisan wlcm:webhook:list            # --json, --active-only
+php artisan wlcm:webhook:update {id?}    # --url, --events, --active/--inactive
+php artisan wlcm:webhook:delete {id?}    # --force
+```
+
+Omit the id on `update`/`delete` and you get a picker over the live list. `delete` refuses this application's own endpoint unless you pass `--force`.
+
+Optional hardening, both off by default:
+
+```
+WLCM_WEBHOOK_DOMAIN=hooks.example.com          # serve the route on one host only
+WLCM_WEBHOOK_ALLOWED_IPS=1.2.3.4,10.0.0.0/8    # exact, CIDR or 1.2.3.4-1.2.3.9 ranges
+```
+
+The allowlist runs **before** signature verification and answers 403. A malformed entry throws rather than silently never matching.
+
+> **Behind a proxy, set TrustProxies** or the allowlist matches your load balancer instead of WLCM and nothing can ever get through. See [ADVANCED.md](ADVANCED.md#webhooks-ip-allowlist).
+
 [ADVANCED.md](ADVANCED.md#webhooks-route-registration-and-the-enabled-toggle) covers verification, dedupe, the claim lease, host route conflicts and deploy-cache traps.
 
 ## Storage (optional)
