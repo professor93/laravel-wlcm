@@ -134,8 +134,17 @@ final class PartnerClient
         } catch (HttpConnectionException $e) {
             $this->logStore->out($this->connectionName, 'partner', $method, $url, $this->maskedBody($body), null, null, $this->elapsedMs($started), result: 'error');
 
-            // Guzzle appends " for {uri}" to every cURL error, so the query rides the message too.
-            throw new ConnectionException(Masker::scrubPans($e->getMessage()), $this->connectionName, $method, Masker::scrubPans($url), previous: $e);
+            // Guzzle appends " for {uri}" to every cURL error, so the query rides the
+            // message too — hence redactQuery on BOTH, not just the url. Without it a
+            // timeout during onboarding puts a live token into whatever error tracker
+            // the host reports to.
+            throw new ConnectionException(
+                Masker::redactQuery(Masker::scrubPans($e->getMessage())),
+                $this->connectionName,
+                $method,
+                Masker::redactQuery(Masker::scrubPans($url)),
+                previous: $e,
+            );
         }
 
         $durationMs = $this->elapsedMs($started);

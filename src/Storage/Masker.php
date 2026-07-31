@@ -119,6 +119,28 @@ final class Masker
         return str_replace("\0", '%00', str_replace('%', '%25', $key));
     }
 
+    // Query parameters whose VALUE must never survive into an exception. The onboarding
+    // token is the live case: it authenticates a one-shot partner creation and rides the
+    // url, which ConnectionException carries into whatever error tracker the host uses.
+    // Log stores were already safe — all three keep only parse_url(PHP_URL_PATH).
+    private const array SECRET_QUERY_KEYS = ['token', 'api_key', 'apikey', 'api_secret', 'apisecret', 'secret', 'secret_key', 'signature', 'access_token', 'refresh_token'];
+
+    /**
+     * Blank the values of sensitive query parameters, in a url or in any text carrying
+     * one. Deliberately NOT a full parse: Guzzle appends " for {uri}" to every cURL
+     * error, so this has to work on a sentence as well as on a bare url. Everything else
+     * is left intact — redacting the whole query would destroy the diagnostics these
+     * exceptions exist to carry.
+     */
+    public static function redactQuery(string $text): string
+    {
+        $names = implode('|', array_map('preg_quote', self::SECRET_QUERY_KEYS));
+
+        // Value runs to the next separator or whitespace; an empty value still rewrites,
+        // so the output never implies a value was absent when it was merely blank.
+        return preg_replace('/\b('.$names.')=[^&\s]*/i', '$1=***', $text) ?? $text;
+    }
+
     public static function scrubPans(string $text): string
     {
         // Postgres cannot convert a json value containing an escaped NUL to text —

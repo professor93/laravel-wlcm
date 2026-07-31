@@ -24,7 +24,10 @@ final class ErrorMapper
     {
         // Query carries merchant free-text (fiscalization external_id, subscription lookup),
         // and exception context is what the merchant's default handler writes to their log.
-        $url = Masker::scrubPans($url);
+        // redactQuery on top: the onboarding token authenticates a one-shot partner
+        // creation and rides ?token=, and a 400 invalid_or_expired is the ORDINARY
+        // failure there — far more likely to be seen than a transport error.
+        $url = Masker::redactQuery(Masker::scrubPans($url));
 
         if ($response->successful()) {
             $json = $response->json();
