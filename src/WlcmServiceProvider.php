@@ -67,6 +67,7 @@ final class WlcmServiceProvider extends ServiceProvider
                 Console\WebhookUpdateCommand::class,
                 Console\WebhookDeleteCommand::class,
                 Console\WebhookEventsCommand::class,
+                Console\MakeWebhookListenersCommand::class,
             ]);
         }
 
