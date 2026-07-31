@@ -60,7 +60,12 @@ final class WlcmServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->commands([Console\OnboardCommand::class]);
+            $this->commands([
+                Console\OnboardCommand::class,
+                Console\WebhookListCommand::class,
+                Console\WebhookUpdateCommand::class,
+                Console\WebhookDeleteCommand::class,
+            ]);
         }
 
         $this->publishes([
