@@ -251,6 +251,51 @@ With `wlcm.storage.logs` on, the delivery's log entry carries a `result` recordi
 
 Subscription deliveries log `ok`, `duplicate`, `inflight` or `failed` — the same set as payments.
 
+## Dedupe backends
+
+`wlcm.storage.transactions` names a backend, not merely on or off.
+
+| Value | Backend |
+| --- | --- |
+| `false`, `'0'`, `0`, `null`, `''` | none — every duplicate and every concurrent copy dispatches |
+| `true`, `'1'`, `1`, `'database'` | `wlcm_transactions` |
+| `'cache'` | `Cache::add()` |
+| anything else | `MissingConfigurationException` |
+
+**`'cache'` exists so dedupe does not require a migration.** The claim is `Cache::add()`, atomic on every driver that matters — SETNX on redis, an INSERT on the database driver, a locked write on file. That is the same "the write IS the verdict" primitive the SQL store uses, so concurrent copies of one delivery still produce exactly one winner.
+
+Three things it is weaker at, and choosing it is choosing these:
+
+1. **No state ladder.** The SQL store re-dispatches only when a payment moves *forward*, refusing an earlier state as stale. The cache key is per `(connection, payment_id, state)`, so a replayed `state=1` arriving after `state=2` is a different key and dispatches again. Enforcing order would need a read-then-compare — the exact race this design avoids.
+2. **No audit trail.** `recordCheckout`, `recordOrder` and `recordOrderLink` do nothing; there is no table. `wlcm.storage.logs` is a separate setting and still works.
+3. **Eviction loses the marker.** A flush, an LRU eviction, or `cache_ttl` expiring means a later redelivery is treated as fresh. Keep `cache_ttl` above WLCM's redelivery window.
+
+**Do not use the `array` driver** — it is per-process and protects nothing across requests.
+
+The caller-transaction guard still applies under `'cache'`, for a *mirrored* hazard rather than the same one. A cache claim does not roll back with your transaction, so a rollback leaves the marker standing and every redelivery is suppressed: the events fired, your own writes vanished, and nothing will try again.
+
+`markProcessed` is token-scoped exactly as the SQL store is — a newer delivery may own the key by then, and stamping it processed would suppress *its* redelivery.
+
+## Reconciliation
+
+Deliveries are effectively at-most-once: WLCM records `attempts: 1` and schedules no retry, confirmed across 59 real deliveries. An order whose webhook never arrives therefore stays unfinished unless you ask about it.
+
+The package does not schedule anything and does not know which orders are outstanding — you do. `wlcm.reconcile` only says **when asking is still worthwhile**:
+
+```php
+'reconcile' => [
+    'enabled' => true,
+    'poll_states' => [0, 1],          // Created, Initiating — still in motion
+    'settled_states' => [2, -1, -2],  // Success, CancelledDuringInit, Cancelled
+],
+```
+
+`OrderStatus::needsPolling()` and `OrderStatus::isSettled()` read that block.
+
+`isSettled()` trusts `isPaid`/`isCancelled` over the state number, because a PAID response **drops the top-level `state` entirely** and carries it only as a string inside `status_explanation`. An order that says it is paid is settled whatever else is missing.
+
+`needsPolling()` answers **false** for a state in neither list. Polling on a value nobody modelled is a loop with no exit; `isSettled()` is the honest question to ask about it instead. It also answers false when `enabled` is false, rather than throwing, so calling code keeps working when the feature is switched off in a hurry.
+
 ## Webhooks: idempotency contract
 
 **Handlers must be idempotent.** A claim takes the row before your handler runs and `processed_at` is still stamped only after it returns. If anything in the dispatch throws, the claim is released on the spot and the next redelivery runs the whole dispatch again — events included. If the worker is killed outright (SIGKILL, OOM, host loss) nothing releases it, and the next redelivery re-runs the dispatch once `wlcm.webhook.lease_seconds` have elapsed; a redelivery arriving inside that window logs `inflight` and dispatches nothing. A handler that runs **longer** than `lease_seconds` can be dispatched twice for the same delivery — size the lease above your slowest handler. At-least-once, not exactly-once. Upgrading past the keyed, length-prefixed `delivery_key` invalidates subscription keys written by an older version, so a redelivery straddling the upgrade may dispatch once more — the same at-least-once contract, not a new hazard.

@@ -177,7 +177,29 @@ Events: `PaymentSucceeded`, `PaymentCancelled`, `WebhookReceived`, plus `Subscri
 
 > **`amount` and `external_id` are not signed.** Never fulfil on the webhook's amount — call `orders()->status($orderId)` and settle from that.
 
-> **Handlers must be idempotent**, and deliveries are effectively at-most-once, so poll for anything still pending. Dedupe needs `wlcm.storage.transactions` on.
+> **Handlers must be idempotent**, and deliveries are effectively at-most-once.
+
+**Dedupe** needs `wlcm.storage.transactions`. Two backends:
+
+```php
+'transactions' => 'database',  // strongest: state ladder + audit trail, needs the migration
+'transactions' => 'cache',     // no table, no migration — atomic Cache::add()
+'transactions' => false,       // none: every duplicate re-fires your listeners
+```
+
+`'cache'` dedupes per `(connection, payment_id, state)` with no ordering, writes no audit rows, and loses its markers to eviction. Don't use the `array` driver. Details in [ADVANCED.md](ADVANCED.md#dedupe-backends).
+
+**Reconciliation.** A delivery that never arrives leaves an order unfinished, so ask:
+
+```php
+$status = Wlcm::partner()->orders()->status($id);
+
+if ($status->isPaid)             { /* fulfil */ }
+elseif ($status->needsPolling()) { /* not settled — check again later */ }
+else                             { /* settled and not paid — stop */ }
+```
+
+Which states count as in-flight is config, in `wlcm.reconcile`. Set `enabled => false` and `needsPolling()` answers false for everything, so the code above keeps working with it switched off.
 
 Register and manage the endpoint from the console:
 

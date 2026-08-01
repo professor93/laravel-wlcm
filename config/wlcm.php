@@ -37,6 +37,27 @@ return [
     // storage.transactions is on — with no row to lose there is nothing to guard.
     'allow_caller_transaction' => false,
 
+    // Deliveries are effectively at-most-once — WLCM records attempts: 1 and schedules
+    // no retry — so an order whose webhook never arrives stays unfinished unless you ask
+    // about it. This block says WHEN asking is still worthwhile; your code decides which
+    // orders to ask about and how often, because only you know which are outstanding.
+    //
+    //     $status = Wlcm::partner()->orders()->status($id);
+    //
+    //     if ($status->isPaid)              { /* fulfil */ }
+    //     elseif ($status->needsPolling())  { /* not settled — ask again later */ }
+    //     else                              { /* settled and not paid — stop */ }
+    'reconcile' => [
+        // false makes needsPolling() answer false for everything, so the code above
+        // keeps working unchanged with the behaviour switched off.
+        'enabled' => true,
+        // PaymentState values that are still in motion: Created(0), Initiating(1).
+        'poll_states' => [0, 1],
+        // Terminal: Success(2), CancelledDuringInit(-1), Cancelled(-2). Reaching one of
+        // these is the answer, whatever it is.
+        'settled_states' => [2, -1, -2],
+    ],
+
     'checkout' => [
         // Where the payer returns after paying, when no returnUrl argument is given.
         // A per-connection override lives at connections.{name}.checkout.return_url and
@@ -101,11 +122,23 @@ return [
         'logs_channel' => env('WLCM_LOGS_CHANNEL'),
         // 'file' driver only; null = storage_path('logs/wlcm.jsonl').
         'logs_path' => env('WLCM_LOGS_PATH'),
+        // Webhook dedupe backend. false = none, and every duplicate or concurrent copy
+        // of a delivery fires your listeners again.
+        //   true / 'database' — wlcm_transactions. Strongest: a forward-only state
+        //     ladder, an audit trail, and a claim that survives a cache flush. Needs the
+        //     migration published.
+        //   'cache' — atomic Cache::add(), no table and no migration. Dedupes per
+        //     (connection, payment_id, state) with NO ordering, writes no audit rows, and
+        //     loses its markers to eviction or TTL. Do not use the array driver.
         'transactions' => false,
         // null or garbage disables pruning; days clamped to >= 1.
         'prune_days' => 90,
         // Reaps abandoned checkouts (no webhook ever arrived); null = keep forever.
         'stale_days' => null,
+
+        // Dedupe marker lifetime for the 'cache' backend only. Keep it above WLCM's
+        // redelivery window: once the marker expires a replay dispatches again.
+        'cache_ttl' => 86400,
 
         // 'file' driver only. Without these the JSONL grows until the disk does not —
         // prune_days covers the two TABLES and nothing else.

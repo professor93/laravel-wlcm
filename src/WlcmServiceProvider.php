@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Uzbek\Wlcm;
 
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Application as FoundationApplication;
@@ -13,6 +14,7 @@ use Illuminate\Support\ServiceProvider;
 use Throwable;
 use Uzbek\Wlcm\Exceptions\MissingConfigurationException;
 use Uzbek\Wlcm\Exceptions\WebhookRouteConflictException;
+use Uzbek\Wlcm\Storage\CacheTransactionStore;
 use Uzbek\Wlcm\Storage\DatabaseLogStore;
 use Uzbek\Wlcm\Storage\FileLogStore;
 use Uzbek\Wlcm\Storage\LogChannelLogStore;
@@ -45,7 +47,15 @@ final class WlcmServiceProvider extends ServiceProvider
             };
         });
 
-        $this->app->singletonIf(TransactionStore::class, TransactionRecorder::class);
+        // Resolved once, from config, so 'cache' never reaches the row-writing recorder.
+        // singletonIf, so a host binding registered before this provider still wins.
+        $this->app->singletonIf(TransactionStore::class, function (Application $app): TransactionStore {
+            $config = $app->make(Repository::class);
+
+            return ConfigToggle::transactionsMode($config->get('wlcm.storage.transactions', false)) === 'cache'
+                ? new CacheTransactionStore($app->make(CacheRepository::class), $config)
+                : new TransactionRecorder($config);
+        });
 
         $this->app->singletonIf(
             WlcmManager::class,

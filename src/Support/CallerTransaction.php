@@ -24,8 +24,19 @@ final class CallerTransaction
         // honest condition: with no row to lose, a caller rollback loses nothing, and
         // refusing anyway would only teach merchants to set the opt-out for a reason that
         // does not apply — which then silently covers the real hazard later.
-        if (! ConfigToggle::enabled($config->get('wlcm.storage.transactions', false), 'wlcm.storage.transactions')) {
+        $mode = ConfigToggle::transactionsMode($config->get('wlcm.storage.transactions', false));
+
+        if ($mode === 'off') {
             return false;
+        }
+
+        // 'cache' guards too, for a mirrored hazard rather than the same one: a cache
+        // claim does NOT roll back with the caller, so a rollback leaves the marker
+        // standing and every redelivery is suppressed — the events fired, the merchant's
+        // own writes vanished, and nothing will try again.
+        if ($mode === 'cache') {
+            return ! ConfigToggle::enabled($config->get('wlcm.allow_caller_transaction', false), 'wlcm.allow_caller_transaction')
+                && (new WlcmTransaction)->getConnection()->transactionLevel() > 0;
         }
 
         if (ConfigToggle::enabled($config->get('wlcm.allow_caller_transaction', false), 'wlcm.allow_caller_transaction')) {

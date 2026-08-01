@@ -2,6 +2,16 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.7.0] - 2026-08-01
+
+### Added
+- `wlcm.storage.transactions` accepts `'cache'`: webhook dedupe with no table and no migration, claiming through atomic `Cache::add()` — the same "the write is the verdict" primitive the SQL store uses, so concurrent copies still produce one winner. Weaker in three documented ways: no state ladder (keyed per connection/payment_id/state with no ordering), no audit rows, and eviction or `cache_ttl` expiry loses the marker. Not for the `array` driver. The caller-transaction guard still applies, for a mirrored hazard — a cache claim does not roll back with your transaction, so a rollback leaves it standing and suppresses every redelivery
+- `wlcm.reconcile` plus `OrderStatus::needsPolling()` and `OrderStatus::isSettled()`. Deliveries are at-most-once, so an order whose webhook never arrives stays unfinished; this says when asking again is worthwhile while leaving the loop to you. `enabled => false` makes `needsPolling()` answer false for everything rather than throwing, and a state in neither list answers false — polling on an unmodelled value is a loop with no exit
+- `wlcm.storage.cache_ttl` (default 86400) for the cache backend's marker lifetime
+
+### Changed
+- `wlcm.storage.transactions` now resolves through `ConfigToggle::transactionsMode()`, which accepts the previous boolean forms plus `'database'` and `'cache'`. Any other value still throws. `ConfigToggle::enabled()` is unchanged and still refuses anything outside its documented set
+
 ## [0.6.0] - 2026-08-01
 
 ### Added

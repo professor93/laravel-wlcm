@@ -67,7 +67,7 @@ final class PublishedConfigMergeTest extends TestCase
 
         $this->assertIsArray($storage);
         $this->assertSame(
-            ['logs', 'logs_channel', 'logs_path', 'transactions', 'prune_days', 'stale_days', 'file'],
+            ['logs', 'logs_channel', 'logs_path', 'transactions', 'prune_days', 'stale_days', 'cache_ttl', 'file'],
             array_keys($storage),
         );
         $this->assertSame(90, $storage['prune_days']);

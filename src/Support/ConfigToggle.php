@@ -20,6 +20,27 @@ final class ConfigToggle
     }
 
     /**
+     * `wlcm.storage.transactions` names a dedupe BACKEND, not merely on or off.
+     *
+     * Kept separate from enabled() because that one must keep refusing anything outside
+     * its documented set — a typo widening a toggle is the failure it exists to prevent,
+     * and 'cache' would have thrown there.
+     */
+    public static function transactionsMode(mixed $value): string
+    {
+        return match ($value) {
+            true, '1', 1, 'database' => 'database',
+            'cache' => 'cache',
+            false, '0', 0, null, '' => 'off',
+            default => throw MissingConfigurationException::forKey(
+                'wlcm.storage.transactions',
+                'true, false, "1", "0", null, "", "database", "cache"',
+                $value,
+            ),
+        };
+    }
+
+    /**
      * The audit toggle answers "is logging on", never "am I the configured driver".
      *
      * All three drivers used to ask the second question, so changing `storage.logs` from

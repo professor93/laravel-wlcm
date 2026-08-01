@@ -44,9 +44,11 @@ final class TransactionRecorder implements TransactionStore
 
     public function __construct(private readonly Repository $config) {}
 
+    // 'database' only: this recorder writes rows, and 'cache' means a different store
+    // was bound. Reaching here under 'cache' would mean the provider wired it wrong.
     private function enabled(): bool
     {
-        return ConfigToggle::enabled($this->config->get('wlcm.storage.transactions', false), 'wlcm.storage.transactions');
+        return ConfigToggle::transactionsMode($this->config->get('wlcm.storage.transactions', false)) === 'database';
     }
 
     // Validated on every claim, never only on the contended branch: a typo must die on
