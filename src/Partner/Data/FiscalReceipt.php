@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Uzbek\Wlcm\Partner\Data;
 
 /**
- * @phpstan-type FiscalReceiptShape array{id: WlcmJsonScalar, payment_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, receipt_type?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar}
+ * @phpstan-type FiscalReceiptShape array{id: WlcmJsonScalar, payment_id?: WlcmJsonScalar, order_id?: WlcmJsonScalar, fiscal_sign?: WlcmJsonScalar, fiscal_number?: WlcmJsonScalar, qr_code_url?: WlcmJsonScalar, receipt_type?: WlcmJsonScalar, is_refund?: WlcmJsonScalar, printed_at?: WlcmJsonScalar, subscription_payment_id?: WlcmJsonScalar}
  */
 final readonly class FiscalReceipt
 {
@@ -19,6 +19,9 @@ final readonly class FiscalReceipt
         public string $receiptType,
         public bool $isRefund,
         public ?string $printedAt,
+        // Subscription receipts carry this INSTEAD of payment_id, which arrives null
+        // and flattens to paymentId 0 — the only way to tell the two apart.
+        public ?int $subscriptionPaymentId = null,
     ) {}
 
     /** @param FiscalReceiptShape $data */
@@ -32,6 +35,7 @@ final readonly class FiscalReceipt
         $qrCodeUrl = $data['qr_code_url'] ?? null;
         $receiptType = $data['receipt_type'] ?? null;
         $printedAt = $data['printed_at'] ?? null;
+        $subscriptionPaymentId = $data['subscription_payment_id'] ?? null;
 
         return new self(
             id: is_numeric($id) ? (int) $id : 0,
@@ -43,6 +47,7 @@ final readonly class FiscalReceipt
             receiptType: is_scalar($receiptType) ? (string) $receiptType : '',
             isRefund: (bool) ($data['is_refund'] ?? false),
             printedAt: is_scalar($printedAt) ? (string) $printedAt : null,
+            subscriptionPaymentId: is_numeric($subscriptionPaymentId) ? (int) $subscriptionPaymentId : null,
         );
     }
 }
