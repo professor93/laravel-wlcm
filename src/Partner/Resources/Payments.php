@@ -48,9 +48,12 @@ final readonly class Payments
     }
 
     /**
-     * Paylov WO confirm. UNVERIFIED: camelCase body sandbox-console-derived, never
-     * confirmed against real payment.
-     * Raw passthrough: response never observed, nothing to type.
+     * Paylov WO confirm. camelCase body confirmed live: the server names
+     * transactionId and otp in its own 422.
+     *
+     * HAZARD: a failure comes back as HTTP 200 with {success: false, error: ...},
+     * so status alone never proves the payment confirmed — read success.
+     * Raw passthrough: success shape still unobserved, nothing to type.
      *
      * @return array<string, mixed>
      */
