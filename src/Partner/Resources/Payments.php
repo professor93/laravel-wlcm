@@ -51,8 +51,8 @@ final readonly class Payments
      * Paylov WO confirm. camelCase body confirmed live: the server names
      * transactionId and otp in its own 422.
      *
-     * HAZARD: a failure comes back as HTTP 200 with {success: false, error: ...},
-     * so status alone never proves the payment confirmed — read success.
+     * A failure comes back as HTTP 200 with {success: false, error: ...}; the client
+     * raises DeniedOperationException on that shape, so returning here means confirmed.
      * Raw passthrough: success shape still unobserved, nothing to type.
      *
      * @return array<string, mixed>

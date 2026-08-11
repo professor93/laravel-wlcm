@@ -11,6 +11,7 @@ use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
 use Uzbek\Wlcm\Exceptions\ConnectionException;
+use Uzbek\Wlcm\Exceptions\DeniedOperationException;
 use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
 use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
@@ -23,6 +24,59 @@ use Uzbek\Wlcm\Tests\TestCase;
 // Fixtures verbatim sandbox (apidev.wlcm.uz) error bodies.
 final class ErrorMappingTest extends TestCase
 {
+    // Verbatim sandbox body: /integrations/payment/confirm denies inside a 200.
+    public function test_200_declaring_failure_raises_instead_of_reading_as_confirmed(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['success' => false, 'error' => 'Payment not found'], 200,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->confirmPaylov('bogus-tx', '111111');
+            $this->fail('expected DeniedOperationException');
+        } catch (DeniedOperationException $e) {
+            $this->assertStringContainsString('Payment not found', $e->getMessage());
+            $this->assertSame('Payment not found', $e->errorCode());
+            $this->assertSame(200, $e->responseStatus);
+        }
+    }
+
+    public function test_200_reporting_success_still_returns(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['success' => true, 'order_id' => 1111, 'message' => null], 200,
+        )]);
+
+        $result = Wlcm::partner()->payments()->confirmPaylov('tx', '111111');
+
+        $this->assertTrue($result['success']);
+    }
+
+    // No success key at all is the ordinary shape; the guard must not fire on it.
+    public function test_200_without_a_success_key_is_untouched(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['id' => 31, 'name' => 'iCAN'], 200)]);
+
+        $this->assertSame(31, Wlcm::partner()->partners()->me()->id);
+    }
+
+    // Denial prose reaches the merchant's log like any other error surface, so a PAN
+    // the server echoes into it must not survive. 4111... is luhn-valid, so it is hunted.
+    public function test_denied_operation_scrubs_pans_out_of_the_reason(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(
+            ['success' => false, 'error' => 'card 4111111111111111 declined'], 200,
+        )]);
+
+        try {
+            Wlcm::partner()->payments()->confirmPaylov('tx', '111111');
+            $this->fail('expected DeniedOperationException');
+        } catch (DeniedOperationException $e) {
+            $this->assertStringNotContainsString('4111111111111111', $e->getMessage());
+            $this->assertStringNotContainsString('4111111111111111', (string) json_encode($e->responseBody));
+        }
+    }
+
     public function test_401_invalid_api_key_carries_error_code(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response(
