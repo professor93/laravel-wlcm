@@ -77,6 +77,14 @@ enum WlcmErrorCode: string
     case IpNotAllowed = 'ip_not_allowed';
     case PartnerInactive = 'partner_inactive';
     case InternalError = 'internal_error';
+    // Signature-envelope rejections. Server answers 401 + code BEFORE any handler,
+    // so these never carry a business detail the way the codes above do.
+    case ApiKeyMissing = 'api_key_missing';
+    case InvalidApiKey = 'invalid_api_key';
+    case SignatureMissing = 'signature_missing';
+    case InvalidSignature = 'invalid_signature';
+    case InvalidTimestamp = 'invalid_timestamp';
+    case TimestampExpired = 'timestamp_expired';
     case RecipientNotFound = 'recipient_not_found';
     case SubscriptionAlreadyExists = 'subscription_already_exists';
     case SubscriptionNotFound = 'subscription_not_found';

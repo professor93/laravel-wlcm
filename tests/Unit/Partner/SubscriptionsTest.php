@@ -80,6 +80,33 @@ final class SubscriptionsTest extends TestCase
         Wlcm::partner()->subscriptions()->charge(5, 10001, 7);
     }
 
+    // Server 422s card_id:string_type on an int, before any business logic runs.
+    public function test_charge_sends_card_id_as_string(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['status' => 'success', 'payment_id' => 98], 200)]);
+
+        Wlcm::partner()->subscriptions()->charge(5, 10000, 7);
+
+        Http::assertSent(function (Request $r): bool {
+            $body = json_decode($r->body(), true);
+
+            return is_array($body) && $body['card_id'] === '7';
+        });
+    }
+
+    public function test_charge_accepts_a_string_card_id_unchanged(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response(['status' => 'success', 'payment_id' => 98], 200)]);
+
+        Wlcm::partner()->subscriptions()->charge(5, 10000, '9f877739-bc25-4f0f-a13f-ec485fd04250');
+
+        Http::assertSent(function (Request $r): bool {
+            $body = json_decode($r->body(), true);
+
+            return is_array($body) && $body['card_id'] === '9f877739-bc25-4f0f-a13f-ec485fd04250';
+        });
+    }
+
     public function test_get_by_id(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response($this->subscriptionFixture(), 200)]);
@@ -114,7 +141,7 @@ final class SubscriptionsTest extends TestCase
         $this->assertSame(98, $result->paymentId);
 
         Http::assertSent(fn (Request $r): bool => str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/subscriptions/5/charge')
-            && $r->body() === '{"amount":100,"card_id":7}');
+            && $r->body() === '{"amount":100,"card_id":"7"}');
     }
 
     public function test_charge_failed_is_data_not_exception(): void

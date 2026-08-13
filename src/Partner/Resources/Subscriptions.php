@@ -51,11 +51,16 @@ final readonly class Subscriptions
         return Subscription::fromArray($result);
     }
 
-    public function charge(int $subscriptionId, int $amountTiyin, int $cardId): SubscriptionChargeResult
+    /**
+     * card_id ships as a STRING: an int 422s with card_id:string_type before the
+     * request reaches any business logic. Accepts int for callers that hold a
+     * numeric id, casts on the way out.
+     */
+    public function charge(int $subscriptionId, int $amountTiyin, int|string $cardId): SubscriptionChargeResult
     {
         $result = $this->client->post("/subscriptions/{$subscriptionId}/charge", [
             'amount' => Tiyin::toSum($amountTiyin),
-            'card_id' => $cardId,
+            'card_id' => (string) $cardId,
         ]);
         /** @var SubscriptionChargeResultShape $result */
 

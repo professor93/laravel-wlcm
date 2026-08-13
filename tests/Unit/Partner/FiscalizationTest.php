@@ -34,6 +34,27 @@ final class FiscalizationTest extends TestCase
         Http::assertSent(fn (Request $req): bool => str_contains($req->url(), 'payment_id=7788'));
     }
 
+    public function test_get_by_subscription_payment_id(): void
+    {
+        Http::fake(['api.wlcm.test/*' => Http::response([
+            'id' => 502, 'payment_id' => null, 'subscription_payment_id' => 4410, 'order_id' => null,
+        ], 200)]);
+
+        $r = Wlcm::partner()->fiscalization()->get(subscriptionPaymentId: 4410);
+
+        $this->assertSame(4410, $r->subscriptionPaymentId);
+        $this->assertSame(0, $r->paymentId);
+        Http::assertSent(fn (Request $req): bool => str_contains($req->url(), 'subscription_payment_id=4410'));
+    }
+
+    public function test_fiscal_receipt_leaves_subscription_payment_id_null_when_absent(): void
+    {
+        $r = FiscalReceipt::fromArray(['id' => 501, 'payment_id' => 7788]);
+
+        $this->assertNull($r->subscriptionPaymentId);
+        $this->assertSame(7788, $r->paymentId);
+    }
+
     public function test_register(): void
     {
         Http::fake(['api.wlcm.test/*' => Http::response([
