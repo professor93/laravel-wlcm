@@ -9,6 +9,7 @@ use Uzbek\Wlcm\Enums\WlcmErrorCode;
 use Uzbek\Wlcm\Exceptions\AuthenticationException;
 use Uzbek\Wlcm\Exceptions\AuthorizationException;
 use Uzbek\Wlcm\Exceptions\ConflictException;
+use Uzbek\Wlcm\Exceptions\DeniedOperationException;
 use Uzbek\Wlcm\Exceptions\InsufficientFundsException;
 use Uzbek\Wlcm\Exceptions\InvalidOtpException;
 use Uzbek\Wlcm\Exceptions\NotFoundException;
@@ -58,6 +59,25 @@ final class ErrorMapper
             }
 
             /** @var array<string, mixed> $json */
+
+            // A 2xx that DENIES in its body is a failure, for the same reason the garbage
+            // body above is: neither may read as paid. success=false is the server saying
+            // the operation did not happen while the transport says it did.
+            if (($json['success'] ?? null) === false) {
+                $error = $json['error'] ?? null;
+                $reason = is_scalar($error) ? (string) $error : 'server reported success=false';
+
+                throw new DeniedOperationException(
+                    'WLCM denied the operation: '.Masker::scrubPans($reason),
+                    connectionName: $connectionName,
+                    requestMethod: $method,
+                    requestPath: $url,
+                    responseStatus: $response->status(),
+                    responseBody: Masker::scrubProse(Masker::mask(self::maskDetailInputs($json))),
+                    errorCode: is_string($error) ? Masker::scrubPans($error) : null,
+                );
+            }
+
             return $json;
         }
 

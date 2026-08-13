@@ -19,16 +19,17 @@ final readonly class Fiscalization
 {
     public function __construct(private PartnerClient $client) {}
 
-    public function get(?int $fiscalId = null, ?int $paymentId = null, ?string $externalId = null): FiscalReceipt
+    public function get(?int $fiscalId = null, ?int $paymentId = null, ?string $externalId = null, ?int $subscriptionPaymentId = null): FiscalReceipt
     {
         $query = array_filter([
             'external_id' => $externalId,
             'fiscal_id' => $fiscalId,
             'payment_id' => $paymentId,
+            'subscription_payment_id' => $subscriptionPaymentId,
         ], fn (mixed $v): bool => $v !== null);
 
         if ($query === []) {
-            throw new InvalidArgumentException('At least one of fiscalId, paymentId, externalId required');
+            throw new InvalidArgumentException('At least one of fiscalId, paymentId, externalId, subscriptionPaymentId required');
         }
 
         $result = $this->client->get('/fiscalization', $query);

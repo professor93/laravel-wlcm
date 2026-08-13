@@ -84,8 +84,8 @@ final readonly class Orders
 
         $providerName = $provider instanceof PaymentProvider ? $provider->value : $provider;
 
-        // The server REQUIRES return_url here, unlike checkout, so an unresolved value
-        // falls back to the empty string the server accepts rather than being omitted.
+        // The server REQUIRES return_url, so an unresolved value falls back to the empty
+        // string it accepts rather than being omitted. Checkout demands it too now.
         $resolved = ReturnUrl::resolve(app(Repository::class), $this->client->connectionName, $returnUrl);
 
         $payload = array_filter([
