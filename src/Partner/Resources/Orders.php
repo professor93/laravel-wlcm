@@ -27,7 +27,8 @@ final readonly class Orders
 
     public function status(int $orderId): OrderStatus
     {
-        $result = $this->client->get("/orders/{$orderId}/status");
+        // plain /orders/{id}/status is 403 partner_api_restricted
+        $result = $this->client->get("/integrations/orders/{$orderId}/status");
         /** @var OrderStatusShape $result */
 
         return OrderStatus::fromArray($result);

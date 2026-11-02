@@ -2,6 +2,11 @@
 
 All notable changes documented here. Format: keep-a-changelog. Semver.
 
+## [0.8.1] - 2026-11-02
+
+### Fixed
+- `Orders::status()` calls `GET /integrations/orders/{id}/status`. WLCM closed the plain `GET /orders/{id}/status` to integration partners on 2026-11-02 (`403 partner_api_restricted`, "This API is disabled for this partner"), so every status poll failed and orders paid without a webhook never settled. The integrations endpoint returns the same body
+
 ## [0.7.0] - 2026-08-01
 
 ### Added
