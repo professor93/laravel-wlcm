@@ -103,7 +103,7 @@ final class ProvidersOrdersTest extends TestCase
         $this->assertSame('pending', $status->statusExplanation['status']);
         $this->assertSame([], $status->extraData);
 
-        Http::assertSent(fn (Request $r): bool => str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/orders/410/status'));
+        Http::assertSent(fn (Request $r): bool => str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/integrations/orders/410/status'));
     }
 
     public function test_paid_order_status_shape(): void
